@@ -645,11 +645,52 @@ fn main() -> gpui::Result<()> {
     ui.set_window_metrics(metrics);
     let _ = ui.poll();
     let before_recovery = ui.prepare_frame()?;
+    let (replacement_device, replacement_queue) = block_on(
+        host_gpu.adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("gpui_embed_mock_recovery_device"),
+            required_features: requirements.features,
+            required_limits: wgpu::Limits::downlevel_defaults()
+                .using_resolution(host_gpu.adapter.limits())
+                .using_alignment(host_gpu.adapter.limits()),
+            memory_hints: wgpu::MemoryHints::MemoryUsage,
+            trace: wgpu::Trace::Off,
+            experimental_features: wgpu::ExperimentalFeatures::disabled(),
+        }),
+    )
+    .map_err(|error| {
+        std::io::Error::other(format!("failed to request recovery device: {error}"))
+    })?;
+    let replacement_device = Arc::new(replacement_device);
+    let replacement_queue = Arc::new(replacement_queue);
+    let replacement_host_gpu = HostGpu::new(
+        host_gpu.adapter.clone(),
+        replacement_device.clone(),
+        replacement_queue.clone(),
+        format,
+    );
     ui.replace_gpu_context(
         host_gpu.adapter.as_ref(),
-        host_gpu.device.clone(),
-        host_gpu.queue.clone(),
+        replacement_device.clone(),
+        replacement_queue.clone(),
+        Some(&external_registry),
     )?;
+    let stale_recovery_target = OffscreenTarget::new(&replacement_host_gpu, target_size);
+    let mut stale_recovery_encoder =
+        replacement_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("mock_recovery_stale_registry_encoder"),
+        });
+    let stale_registry_error = ui
+        .encode_with_external_surfaces(
+            stale_recovery_target.target(wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)),
+            &mut stale_recovery_encoder,
+            &external_registry,
+        )
+        .expect_err("the old external view must be rejected after GPU recovery");
+    assert!(
+        stale_registry_error
+            .to_string()
+            .contains("must be replaced after GPU recovery")
+    );
     let _ = ui.poll();
     let recovery_status = ui.prepare_frame()?;
     assert!(
@@ -664,11 +705,13 @@ fn main() -> gpui::Result<()> {
         .expect("recovery did not export viewport bounds");
     let recovery_device_bounds =
         recovery_logical_bounds.to_device_pixels(recovery_scene.metrics.scale_factor);
-    viewport_target = OffscreenTarget::new(&host_gpu, recovery_device_bounds.size);
-    let recovery_pipeline = create_gpu_scene_pipeline(device.as_ref(), format);
-    let mut recovery_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("mock_recovery_encoder"),
-    });
+    viewport_target = OffscreenTarget::new(&replacement_host_gpu, recovery_device_bounds.size);
+    let recovery_pipeline = create_gpu_scene_pipeline(replacement_device.as_ref(), format);
+    let recovery_target = OffscreenTarget::new(&replacement_host_gpu, target_size);
+    let mut recovery_encoder =
+        replacement_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("mock_recovery_encoder"),
+        });
     encode_engine_viewport(
         &mut recovery_encoder,
         &recovery_pipeline,
@@ -686,16 +729,18 @@ fn main() -> gpui::Result<()> {
             view: Arc::new(viewport_target.view().clone()),
         },
     ));
-    let recovery_target = OffscreenTarget::new(&host_gpu, target_size);
     ui.encode_with_external_surfaces(
         recovery_target.target(wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)),
         &mut recovery_encoder,
         &external_registry,
     )?;
-    queue.submit(Some(recovery_encoder.finish()));
+    replacement_queue.submit(Some(recovery_encoder.finish()));
     assert!(ui.mark_presented(recovery_status.scene_generation)?);
-    let (recovery_pixels, recovery_stride) =
-        readback_target(device.as_ref(), queue.as_ref(), &recovery_target)?;
+    let (recovery_pixels, recovery_stride) = readback_target(
+        replacement_device.as_ref(),
+        replacement_queue.as_ref(),
+        &recovery_target,
+    )?;
     let recovery_bright_text_pixels = recovery_pixels
         .chunks(recovery_stride as usize)
         .flat_map(|row| row[..(WIDTH * 4) as usize].chunks_exact(4))

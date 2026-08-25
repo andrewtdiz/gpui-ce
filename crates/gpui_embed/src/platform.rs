@@ -1167,17 +1167,22 @@ impl EmbeddedGpui {
     /// Rebuilds the surface-free renderer after host device recovery.
     ///
     /// The platform atlas keeps its identity and is rebound in place. The host must recreate
-    /// borrowed render targets and replace every registered external-surface view before the
-    /// next encode.
+    /// borrowed render targets. Pass the external-surface registry when the host has registered
+    /// external surfaces; their generations are snapshotted and each view must be replaced
+    /// before that ID is encoded again. Hosts without external surfaces may pass `None`.
     pub fn replace_gpu_context(
         &self,
         adapter: &gpui_wgpu::wgpu::Adapter,
         device: Arc<gpui_wgpu::wgpu::Device>,
         queue: Arc<gpui_wgpu::wgpu::Queue>,
+        external_surfaces: Option<&gpui::ExternalSurfaceRegistry<gpui_wgpu::WgpuExternalSurface>>,
     ) -> gpui::Result<()> {
-        self.renderer
-            .borrow_mut()
-            .replace_gpu_context(adapter, device, queue)?;
+        self.renderer.borrow_mut().replace_gpu_context(
+            adapter,
+            device,
+            queue,
+            external_surfaces,
+        )?;
         self.application.update(|cx| {
             self.window.handle().update(cx, |_, window, _| {
                 window.refresh();

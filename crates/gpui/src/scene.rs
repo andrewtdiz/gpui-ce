@@ -1110,6 +1110,13 @@ impl<T> ExternalSurfaceRegistry<T> {
         self.resources.get(&id).map(|entry| entry.generation)
     }
 
+    /// Iterates over the stable identifiers and current generations of all registered resources.
+    pub fn generations(&self) -> impl Iterator<Item = (ExternalSurfaceId, u64)> + '_ {
+        self.resources
+            .iter()
+            .map(|(&id, entry)| (id, entry.generation))
+    }
+
     /// Returns the number of registered resources.
     pub fn len(&self) -> usize {
         self.resources.len()
@@ -1508,9 +1515,11 @@ mod tests {
         let id = registry.register("first");
         assert_eq!(registry.generation(id), Some(1));
         assert_eq!(registry.get(id), Some(&"first"));
+        assert_eq!(registry.generations().collect::<Vec<_>>(), vec![(id, 1)]);
         assert!(registry.replace(id, "second"));
         assert_eq!(registry.generation(id), Some(2));
         assert_eq!(registry.get(id), Some(&"second"));
+        assert_eq!(registry.generations().collect::<Vec<_>>(), vec![(id, 2)]);
         assert_eq!(registry.replace_with_generation(id, "third"), Some(3));
         assert_eq!(registry.remove(id), Some("third"));
         assert_eq!(registry.len(), 0);

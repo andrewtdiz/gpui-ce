@@ -294,8 +294,7 @@ pub struct WgpuSceneRenderer {
     surface_uniform_stride: u64,
     surface_uniform_capacity: u64,
     surface_uniform_slot: std::cell::Cell<u64>,
-    external_surface_generations: HashMap<ExternalSurfaceId, u64>,
-    external_surfaces_need_replacement: bool,
+    pending_external_surface_replacements: HashMap<ExternalSurfaceId, u64>,
 }
 
 impl WgpuSceneRenderer {
@@ -541,8 +540,7 @@ impl WgpuSceneRenderer {
             surface_uniform_stride,
             surface_uniform_capacity: INITIAL_SURFACE_UNIFORM_SLOTS,
             surface_uniform_slot: std::cell::Cell::new(0),
-            external_surface_generations: HashMap::new(),
-            external_surfaces_need_replacement: false,
+            pending_external_surface_replacements: HashMap::new(),
         })
     }
 
@@ -1215,24 +1213,27 @@ impl WgpuSceneRenderer {
     /// Construction is transactional: the live renderer and its shared atlas remain untouched
     /// until replacement resources have been built successfully. The atlas [`Arc`] itself is
     /// preserved so the GPUI window keeps the same platform-atlas identity. The renderer format
-    /// is fixed for its lifetime; the host must recreate its render targets and replace every
-    /// registered external-surface view after device loss before encoding again.
+    /// is fixed for its lifetime. When an external-surface registry is supplied, its current
+    /// generations are snapshotted and each registered view must be replaced before that ID is
+    /// encoded again. Hosts without external surfaces may pass `None`.
     pub fn replace_gpu_context(
         &mut self,
         adapter: &wgpu::Adapter,
         device: Arc<wgpu::Device>,
         queue: Arc<wgpu::Queue>,
+        external_surfaces: Option<&ExternalSurfaceRegistry<WgpuExternalSurface>>,
     ) -> anyhow::Result<()> {
         let config = self.config;
         Self::validate_host_target_format(adapter, config.format)?;
         let atlas = self.atlas.clone();
-        let previous_external_surface_generations = self.external_surface_generations.clone();
+        let pending_external_surface_replacements = external_surfaces
+            .map(|registry| registry.generations().collect())
+            .unwrap_or_default();
         let replacement_device = device.clone();
         let replacement_queue = queue.clone();
         let mut replacement = Self::from_parts(adapter, device, queue, config, atlas.clone())?;
+        replacement.pending_external_surface_replacements = pending_external_surface_replacements;
         atlas.replace_gpu_context(replacement_device, replacement_queue, config.format);
-        replacement.external_surface_generations = previous_external_surface_generations;
-        replacement.external_surfaces_need_replacement = true;
         *self = replacement;
         Ok(())
     }
@@ -1879,37 +1880,30 @@ impl WgpuSceneRenderer {
                 scene.external_surfaces.len()
             )
         })?;
+        let mut validated_ids = Vec::with_capacity(scene.external_surfaces.len());
         for surface in &scene.external_surfaces {
             anyhow::ensure!(
                 registry.get(surface.id).is_some(),
                 "missing external surface ID {}",
                 surface.id.value()
             );
-            if self.external_surfaces_need_replacement {
-                if let Some(previous_generation) =
-                    self.external_surface_generations.get(&surface.id)
-                {
-                    let current_generation = registry
-                        .generation(surface.id)
-                        .expect("external surface was validated before reading its generation");
-                    anyhow::ensure!(
-                        current_generation > *previous_generation,
-                        "external surface ID {} must be replaced after GPU recovery",
-                        surface.id.value()
-                    );
-                }
+            let current_generation = registry
+                .generation(surface.id)
+                .expect("external surface was validated before reading its generation");
+            if let Some(recovery_generation) =
+                self.pending_external_surface_replacements.get(&surface.id)
+            {
+                anyhow::ensure!(
+                    current_generation > *recovery_generation,
+                    "external surface ID {} must be replaced after GPU recovery",
+                    surface.id.value()
+                );
             }
+            validated_ids.push(surface.id);
         }
-        self.external_surface_generations = scene
-            .external_surfaces
-            .iter()
-            .filter_map(|surface| {
-                registry
-                    .generation(surface.id)
-                    .map(|generation| (surface.id, generation))
-            })
-            .collect();
-        self.external_surfaces_need_replacement = false;
+        for id in validated_ids {
+            self.pending_external_surface_replacements.remove(&id);
+        }
         Ok(())
     }
 
@@ -3024,6 +3018,91 @@ mod tests {
     use super::*;
     use gpui::block_on;
 
+    fn test_external_scene(ids: &[ExternalSurfaceId]) -> Scene {
+        let bounds = Bounds {
+            origin: Point {
+                x: ScaledPixels(0.0),
+                y: ScaledPixels(0.0),
+            },
+            size: Size {
+                width: ScaledPixels(16.0),
+                height: ScaledPixels(16.0),
+            },
+        };
+        let mut scene = Scene::default();
+        for &id in ids {
+            scene.insert_primitive(ExternalSurface {
+                order: 0,
+                bounds,
+                content_mask: gpui::ContentMask { bounds },
+                id,
+            });
+        }
+        scene.finish();
+        scene
+    }
+
+    fn test_external_view(device: &wgpu::Device) -> Arc<wgpu::TextureView> {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("external_surface_recovery_test_view"),
+            size: wgpu::Extent3d {
+                width: 16,
+                height: 16,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        Arc::new(texture.create_view(&wgpu::TextureViewDescriptor::default()))
+    }
+
+    fn encode_external_scene(
+        renderer: &mut WgpuSceneRenderer,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        scene: &Scene,
+        registry: &ExternalSurfaceRegistry<WgpuExternalSurface>,
+    ) -> anyhow::Result<()> {
+        let target_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("external_surface_recovery_test_target"),
+            size: wgpu::Extent3d {
+                width: 16,
+                height: 16,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let target_view = target_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("external_surface_recovery_test_encoder"),
+        });
+        renderer.encode_with_external_surfaces(
+            scene,
+            &mut encoder,
+            WgpuRenderTarget {
+                view: &target_view,
+                size: Size {
+                    width: DevicePixels(16),
+                    height: DevicePixels(16),
+                },
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+            },
+            registry,
+        )?;
+        queue.submit(Some(encoder.finish()));
+        Ok(())
+    }
+
     #[test]
     fn replacement_preserves_atlas_identity_and_renderer_format() -> anyhow::Result<()> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
@@ -3070,10 +3149,135 @@ mod tests {
             },
         )?;
         let atlas = renderer.sprite_atlas().clone();
-        renderer.replace_gpu_context(&adapter, device, queue)?;
+        renderer.replace_gpu_context(&adapter, device, queue, None)?;
 
         assert!(Arc::ptr_eq(&atlas, renderer.sprite_atlas()));
         assert_eq!(renderer.target_format(), format);
+        Ok(())
+    }
+
+    #[test]
+    fn external_surface_recovery_tracks_each_id_until_replaced() -> anyhow::Result<()> {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            flags: wgpu::InstanceFlags::default(),
+            backend_options: wgpu::BackendOptions::default(),
+            memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
+            display: None,
+        });
+        let adapter = block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::LowPower,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+        }))
+        .map_err(|error| anyhow::anyhow!("failed to request adapter: {error}"))?;
+        let requirements = WgpuSceneRenderer::requirements(&adapter);
+        let (device, queue) = block_on(
+            adapter.request_device(&wgpu::DeviceDescriptor {
+                label: Some("wgpu_external_surface_recovery_test"),
+                required_features: requirements.features,
+                required_limits: wgpu::Limits::downlevel_defaults()
+                    .using_resolution(adapter.limits())
+                    .using_alignment(adapter.limits()),
+                memory_hints: wgpu::MemoryHints::MemoryUsage,
+                trace: wgpu::Trace::Off,
+                experimental_features: wgpu::ExperimentalFeatures::disabled(),
+            }),
+        )
+        .map_err(|error| anyhow::anyhow!("failed to request device: {error}"))?;
+        let device = Arc::new(device);
+        let queue = Arc::new(queue);
+        let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+        let mut renderer = WgpuSceneRenderer::from_host(
+            &adapter,
+            device.clone(),
+            queue.clone(),
+            WgpuSceneRendererConfig {
+                size: Size {
+                    width: DevicePixels(16),
+                    height: DevicePixels(16),
+                },
+                format,
+                transparent: false,
+            },
+        )?;
+
+        let mut registry = ExternalSurfaceRegistry::default();
+        let id_a = registry.register(WgpuExternalSurface {
+            view: test_external_view(&device),
+        });
+        let id_b = registry.register(WgpuExternalSurface {
+            view: test_external_view(&device),
+        });
+        let scene_ab = test_external_scene(&[id_a, id_b]);
+        let scene_a = test_external_scene(&[id_a]);
+        let scene_b = test_external_scene(&[id_b]);
+
+        // Both registered surfaces are valid before recovery.
+        encode_external_scene(&mut renderer, &device, &queue, &scene_ab, &registry)?;
+
+        // Recovery snapshots both generations. Replacing A must not release B's requirement.
+        renderer.replace_gpu_context(&adapter, device.clone(), queue.clone(), Some(&registry))?;
+        assert!(registry.replace(
+            id_a,
+            WgpuExternalSurface {
+                view: test_external_view(&device),
+            },
+        ));
+        encode_external_scene(&mut renderer, &device, &queue, &scene_a, &registry)?;
+
+        let empty_scene = Scene::default();
+        encode_external_scene(&mut renderer, &device, &queue, &empty_scene, &registry)?;
+
+        // The stale B view is rejected during validation, before any command submission or GPU
+        // work. The failed scene must not clear A or B state prematurely.
+        let target_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("external_surface_recovery_test_stale_target"),
+            size: wgpu::Extent3d {
+                width: 16,
+                height: 16,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let target_view = target_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let mut stale_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("external_surface_recovery_test_stale_encoder"),
+        });
+        let error = renderer
+            .encode_with_external_surfaces(
+                &scene_b,
+                &mut stale_encoder,
+                WgpuRenderTarget {
+                    view: &target_view,
+                    size: Size {
+                        width: DevicePixels(16),
+                        height: DevicePixels(16),
+                    },
+                    format,
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                },
+                &registry,
+            )
+            .expect_err("stale external surface B should be rejected after recovery");
+        assert!(
+            error
+                .to_string()
+                .contains("external surface ID 2 must be replaced after GPU recovery")
+        );
+
+        assert!(registry.replace(
+            id_b,
+            WgpuExternalSurface {
+                view: test_external_view(&device),
+            },
+        ));
+        encode_external_scene(&mut renderer, &device, &queue, &scene_b, &registry)?;
         Ok(())
     }
 }
