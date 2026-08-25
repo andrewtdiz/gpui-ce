@@ -10,6 +10,7 @@ use crate::{
 };
 use smallvec::SmallVec;
 use std::{
+    collections::HashMap,
     fmt::Debug,
     iter::Peekable,
     ops::{Add, Range, Sub},
@@ -51,6 +52,8 @@ pub struct Scene {
     pub subpixel_sprites: Vec<SubpixelSprite>,
     pub polychrome_sprites: Vec<PolychromeSprite>,
     pub surfaces: Vec<PaintSurface>,
+    /// Backend-neutral external textures drawn in scene order.
+    pub external_surfaces: Vec<ExternalSurface>,
     pub backdrop_filters: Vec<BackdropFilter>,
     pub filter_boundaries: Vec<FilterBoundary>,
 }
@@ -69,6 +72,7 @@ impl Scene {
         self.subpixel_sprites.clear();
         self.polychrome_sprites.clear();
         self.surfaces.clear();
+        self.external_surfaces.clear();
         self.backdrop_filters.clear();
         self.filter_boundaries.clear();
     }
@@ -167,6 +171,10 @@ impl Scene {
                 surface.order = order;
                 self.surfaces.push(surface.clone());
             }
+            Primitive::ExternalSurface(surface) => {
+                surface.order = order;
+                self.external_surfaces.push(*surface);
+            }
             Primitive::BackdropFilter(filter) => {
                 filter.order = order;
                 self.backdrop_filters.push(filter.clone());
@@ -210,6 +218,7 @@ impl Scene {
         self.polychrome_sprites
             .sort_by_key(|sprite| (sprite.order, sprite.tile.tile_id));
         self.surfaces.sort_by_key(|surface| surface.order);
+        self.external_surfaces.sort_by_key(|surface| surface.order);
         self.backdrop_filters.sort_by_key(|filter| filter.order);
         // Markers normally get distinct, monotonically-increasing orders (children overlap
         // their group bounds and so sort strictly between the start and end). The `!is_start`
@@ -244,6 +253,8 @@ impl Scene {
             polychrome_sprites_iter: self.polychrome_sprites.iter().peekable(),
             surfaces_start: 0,
             surfaces_iter: self.surfaces.iter().peekable(),
+            external_surfaces_start: 0,
+            external_surfaces_iter: self.external_surfaces.iter().peekable(),
             backdrop_filters_start: 0,
             backdrop_filters_iter: self.backdrop_filters.iter().peekable(),
             filter_boundaries_start: 0,
@@ -302,6 +313,7 @@ pub(crate) enum PrimitiveKind {
     SubpixelSprite,
     PolychromeSprite,
     Surface,
+    ExternalSurface,
     BackdropFilter,
     // Highest discriminant: at an equal order, a group-end is emitted after the group's content
     // so the renderer composites the filtered group only once every child has been drawn.
@@ -325,6 +337,7 @@ pub enum Primitive {
     SubpixelSprite(SubpixelSprite),
     PolychromeSprite(PolychromeSprite),
     Surface(PaintSurface),
+    ExternalSurface(ExternalSurface),
     BackdropFilter(BackdropFilter),
     FilterBoundary(FilterBoundary),
 }
@@ -341,6 +354,7 @@ impl Primitive {
             Primitive::SubpixelSprite(sprite) => &sprite.bounds,
             Primitive::PolychromeSprite(sprite) => &sprite.bounds,
             Primitive::Surface(surface) => &surface.bounds,
+            Primitive::ExternalSurface(surface) => &surface.bounds,
             Primitive::BackdropFilter(filter) => &filter.bounds,
             Primitive::FilterBoundary(boundary) => &boundary.bounds,
         }
@@ -356,6 +370,7 @@ impl Primitive {
             Primitive::SubpixelSprite(sprite) => &sprite.content_mask,
             Primitive::PolychromeSprite(sprite) => &sprite.content_mask,
             Primitive::Surface(surface) => &surface.content_mask,
+            Primitive::ExternalSurface(surface) => &surface.content_mask,
             Primitive::BackdropFilter(filter) => &filter.content_mask,
             Primitive::FilterBoundary(boundary) => &boundary.content_mask,
         }
@@ -386,6 +401,8 @@ struct BatchIterator<'a> {
     polychrome_sprites_iter: Peekable<slice::Iter<'a, PolychromeSprite>>,
     surfaces_start: usize,
     surfaces_iter: Peekable<slice::Iter<'a, PaintSurface>>,
+    external_surfaces_start: usize,
+    external_surfaces_iter: Peekable<slice::Iter<'a, ExternalSurface>>,
     backdrop_filters_start: usize,
     backdrop_filters_iter: Peekable<slice::Iter<'a, BackdropFilter>>,
     filter_boundaries_start: usize,
@@ -422,6 +439,10 @@ impl<'a> Iterator for BatchIterator<'a> {
             (
                 self.surfaces_iter.peek().map(|s| s.order),
                 PrimitiveKind::Surface,
+            ),
+            (
+                self.external_surfaces_iter.peek().map(|s| s.order),
+                PrimitiveKind::ExternalSurface,
             ),
             (
                 self.backdrop_filters_iter.peek().map(|f| f.order),
@@ -582,6 +603,22 @@ impl<'a> Iterator for BatchIterator<'a> {
                 self.surfaces_start = surfaces_end;
                 Some(PrimitiveBatch::Surfaces(surfaces_start..surfaces_end))
             }
+            PrimitiveKind::ExternalSurface => {
+                let external_surfaces_start = self.external_surfaces_start;
+                let mut external_surfaces_end = external_surfaces_start + 1;
+                self.external_surfaces_iter.next();
+                while self
+                    .external_surfaces_iter
+                    .next_if(|surface| (surface.order, batch_kind) < max_order_and_kind)
+                    .is_some()
+                {
+                    external_surfaces_end += 1;
+                }
+                self.external_surfaces_start = external_surfaces_end;
+                Some(PrimitiveBatch::ExternalSurfaces(
+                    external_surfaces_start..external_surfaces_end,
+                ))
+            }
             PrimitiveKind::BackdropFilter => {
                 let backdrop_filters_start = self.backdrop_filters_start;
                 let mut backdrop_filters_end = backdrop_filters_start + 1;
@@ -638,6 +675,7 @@ pub enum PrimitiveBatch {
         range: Range<usize>,
     },
     Surfaces(Range<usize>),
+    ExternalSurfaces(Range<usize>),
     BackdropFilters(Range<usize>),
     /// A single content-filter group boundary; index into [`Scene::filter_boundaries`]. Read
     /// `is_start` to tell whether this opens the group (switch render target) or closes it
@@ -675,6 +713,7 @@ impl PrimitiveBatch {
                 )
             }
             Self::Surfaces(range) => format!("surfaces ({})", range.len()),
+            Self::ExternalSurfaces(range) => format!("external surfaces ({})", range.len()),
             Self::BackdropFilters(range) => format!("backdrop filters ({})", range.len()),
             Self::FilterBoundary(ix) => format!("filter boundary ({ix})"),
         }
@@ -988,6 +1027,115 @@ impl From<PaintSurface> for Primitive {
     }
 }
 
+/// Stable identifier for a host-owned external texture.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub struct ExternalSurfaceId(u64);
+
+impl ExternalSurfaceId {
+    /// Creates an identifier from a host-managed numeric value.
+    pub const fn new(value: u64) -> Self {
+        Self(value)
+    }
+
+    /// Returns the numeric identifier.
+    pub const fn value(self) -> u64 {
+        self.0
+    }
+}
+
+/// A registry that maps scene identifiers to backend-owned texture resources.
+#[derive(Debug)]
+pub struct ExternalSurfaceRegistry<T> {
+    next_id: u64,
+    resources: HashMap<ExternalSurfaceId, ExternalSurfaceEntry<T>>,
+}
+
+#[derive(Debug)]
+struct ExternalSurfaceEntry<T> {
+    resource: T,
+    generation: u64,
+}
+
+impl<T> Default for ExternalSurfaceRegistry<T> {
+    fn default() -> Self {
+        Self {
+            next_id: 1,
+            resources: HashMap::new(),
+        }
+    }
+}
+
+impl<T> ExternalSurfaceRegistry<T> {
+    /// Registers a resource and returns its stable scene identifier.
+    pub fn register(&mut self, resource: T) -> ExternalSurfaceId {
+        let id = ExternalSurfaceId::new(self.next_id);
+        self.next_id = self.next_id.wrapping_add(1).max(1);
+        self.resources.insert(
+            id,
+            ExternalSurfaceEntry {
+                resource,
+                generation: 1,
+            },
+        );
+        id
+    }
+
+    /// Replaces a resource under an existing identifier without changing scene layout identity.
+    /// The per-resource generation advances so a renderer can require a fresh backend view after
+    /// device recovery.
+    pub fn replace(&mut self, id: ExternalSurfaceId, resource: T) -> bool {
+        self.replace_with_generation(id, resource).is_some()
+    }
+
+    /// Replaces a resource and returns its new generation.
+    pub fn replace_with_generation(&mut self, id: ExternalSurfaceId, resource: T) -> Option<u64> {
+        let entry = self.resources.get_mut(&id)?;
+        entry.resource = resource;
+        entry.generation = entry.generation.wrapping_add(1).max(1);
+        Some(entry.generation)
+    }
+
+    /// Removes a resource from the registry.
+    pub fn remove(&mut self, id: ExternalSurfaceId) -> Option<T> {
+        self.resources.remove(&id).map(|entry| entry.resource)
+    }
+
+    /// Returns a registered resource.
+    pub fn get(&self, id: ExternalSurfaceId) -> Option<&T> {
+        self.resources.get(&id).map(|entry| &entry.resource)
+    }
+
+    /// Returns the current generation of a registered resource.
+    pub fn generation(&self, id: ExternalSurfaceId) -> Option<u64> {
+        self.resources.get(&id).map(|entry| entry.generation)
+    }
+
+    /// Returns the number of registered resources.
+    pub fn len(&self) -> usize {
+        self.resources.len()
+    }
+}
+
+/// A host-owned texture sampled at a GPUI-computed layout position.
+#[derive(Copy, Clone, Debug)]
+#[repr(C)]
+pub struct ExternalSurface {
+    /// Draw order assigned by the scene.
+    pub order: DrawOrder,
+    /// Device-scaled bounds of the external texture.
+    pub bounds: Bounds<ScaledPixels>,
+    /// Clip mask applied while sampling the texture.
+    pub content_mask: ContentMask<ScaledPixels>,
+    /// Registry identifier for the host-owned texture.
+    pub id: ExternalSurfaceId,
+}
+
+impl From<ExternalSurface> for Primitive {
+    fn from(surface: ExternalSurface) -> Self {
+        Primitive::ExternalSurface(surface)
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 #[expect(missing_docs)]
 pub struct PathId(pub usize);
@@ -1238,12 +1386,22 @@ mod tests {
         }
     }
 
+    fn external_surface(id: u64) -> ExternalSurface {
+        ExternalSurface {
+            order: 0,
+            bounds: full_bounds(),
+            content_mask: mask(),
+            id: ExternalSurfaceId::new(id),
+        }
+    }
+
     fn batch_kinds(scene: &mut Scene) -> Vec<&'static str> {
         scene.finish();
         scene
             .batches()
             .map(|batch| match batch {
                 PrimitiveBatch::Quads(_) => "quad",
+                PrimitiveBatch::ExternalSurfaces(_) => "external",
                 PrimitiveBatch::BackdropFilters(_) => "backdrop",
                 PrimitiveBatch::FilterBoundary(ix) => {
                     if scene.filter_boundaries[ix].is_start {
@@ -1322,5 +1480,39 @@ mod tests {
         scene.insert_primitive(quad());
 
         assert_eq!(batch_kinds(&mut scene), vec!["quad", "backdrop", "quad"]);
+    }
+
+    #[test]
+    fn external_surfaces_preserve_scene_order() {
+        let mut scene = Scene::default();
+        scene.insert_primitive(quad());
+        scene.insert_primitive(external_surface(7));
+        scene.insert_primitive(quad());
+
+        assert_eq!(batch_kinds(&mut scene), vec!["quad", "external", "quad"]);
+        assert_eq!(scene.external_surfaces[0].id, ExternalSurfaceId::new(7));
+    }
+
+    #[test]
+    fn external_surfaces_replay_and_registry_lifecycle() {
+        let mut scene = Scene::default();
+        scene.insert_primitive(external_surface(11));
+
+        let mut replay = Scene::default();
+        replay.replay(0..scene.len(), &scene);
+        replay.finish();
+        assert_eq!(replay.external_surfaces.len(), 1);
+        assert_eq!(replay.external_surfaces[0].id, ExternalSurfaceId::new(11));
+
+        let mut registry = ExternalSurfaceRegistry::default();
+        let id = registry.register("first");
+        assert_eq!(registry.generation(id), Some(1));
+        assert_eq!(registry.get(id), Some(&"first"));
+        assert!(registry.replace(id, "second"));
+        assert_eq!(registry.generation(id), Some(2));
+        assert_eq!(registry.get(id), Some(&"second"));
+        assert_eq!(registry.replace_with_generation(id, "third"), Some(3));
+        assert_eq!(registry.remove(id), Some("third"));
+        assert_eq!(registry.len(), 0);
     }
 }

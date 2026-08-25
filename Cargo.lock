@@ -2541,6 +2541,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "gpui_embed"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "gpui",
+ "gpui_wgpu",
+ "uuid",
+]
+
+[[package]]
 name = "gpui_linux"
 version = "0.1.0"
 dependencies = [

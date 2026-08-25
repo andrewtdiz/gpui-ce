@@ -1090,6 +1090,10 @@ impl MetalRenderer {
                     viewport_size,
                     command_encoder,
                 ),
+                // External surfaces are host-registered WGPU resources. Native Metal windows do
+                // not receive that registry, so retain the scene ordering while leaving the
+                // primitive for a native viewport integration to consume later.
+                PrimitiveBatch::ExternalSurfaces(_) => true,
                 PrimitiveBatch::BackdropFilters(range) => {
                     command_encoder.end_encoding();
                     if let (Some(ping), Some(pong)) =

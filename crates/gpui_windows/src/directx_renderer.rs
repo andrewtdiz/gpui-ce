@@ -513,6 +513,10 @@ impl DirectXRenderer {
                     self.draw_polychrome_sprites(texture_id, range.start, range.len())
                 }
                 PrimitiveBatch::Surfaces(range) => self.draw_surfaces(&scene.surfaces[range]),
+                // External surfaces are resolved by the WGPU embedding host. Keep native
+                // backends tolerant of the backend-neutral primitive until they provide their
+                // own resource registry.
+                PrimitiveBatch::ExternalSurfaces(_) => Ok(()),
                 PrimitiveBatch::BackdropFilters(range) => {
                     let result = (|| {
                         for filter in &scene.backdrop_filters[range] {

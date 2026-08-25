@@ -1,6 +1,6 @@
 use crate::{
-    App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId, IntoElement, LayoutId,
-    ObjectFit, Pixels, Style, StyleRefinement, Styled, Window,
+    App, Bounds, Element, ElementId, ExternalSurfaceId, GlobalElementId, InspectorElementId,
+    IntoElement, LayoutId, ObjectFit, Pixels, Style, StyleRefinement, Styled, Window,
 };
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 use crate::{DevicePixels, Size};
@@ -159,6 +159,83 @@ impl IntoElement for Surface {
 }
 
 impl Styled for Surface {
+    fn style(&mut self) -> &mut StyleRefinement {
+        &mut self.style
+    }
+}
+
+/// An engine-owned texture sampled inside GPUI layout and draw order.
+pub struct ExternalSurfaceElement {
+    id: ExternalSurfaceId,
+    style: StyleRefinement,
+}
+
+/// Creates an external surface element for a host-registered texture.
+pub fn external_surface(id: ExternalSurfaceId) -> ExternalSurfaceElement {
+    ExternalSurfaceElement {
+        id,
+        style: Default::default(),
+    }
+}
+
+impl Element for ExternalSurfaceElement {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _global_id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, Self::RequestLayoutState) {
+        let mut style = Style::default();
+        style.refine(&self.style);
+        (window.request_layout(style, [], cx), ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _global_id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        _bounds: Bounds<Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Self::PrepaintState {
+    }
+
+    fn paint(
+        &mut self,
+        _global_id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        _prepaint: &mut Self::PrepaintState,
+        window: &mut Window,
+        _cx: &mut App,
+    ) {
+        window.paint_external_surface(bounds, self.id);
+    }
+}
+
+impl IntoElement for ExternalSurfaceElement {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl Styled for ExternalSurfaceElement {
     fn style(&mut self) -> &mut StyleRefinement {
         &mut self.style
     }

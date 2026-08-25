@@ -3,6 +3,7 @@ members = [
   "./crates/gpui/",
   "./crates/gpui_web/",
   "./crates/gpui_wgpu/",
+  "./crates/gpui_embed/",
   "./crates/gpui_linux/",
   "./crates/gpui_macos/",
   "./crates/gpui_tokio/",
@@ -188,6 +189,7 @@ gpui_windows = { path = "./crates/gpui_windows/", version = "0.1.0" }
 gpui_web = { path = "./crates/gpui_web/", version = "0.1.0" }
 
 gpui_wgpu = { path = "./crates/gpui_wgpu/", version = "0.1.0" }
+gpui_embed = { path = "./crates/gpui_embed/", version = "0.1.0" }
 
 gpui_macros = { path = "./crates/gpui_macros/", version = "0.1.0" }
 gpui_shared_string = { path = "./crates/gpui_shared_string/", version = "0.1.0" }

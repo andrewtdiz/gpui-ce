@@ -91,13 +91,21 @@ impl WgpuAtlas {
         lock.pending_uploads.clear();
     }
 
-    /// Handles device lost by clearing all textures and cached tiles.
-    /// The atlas will lazily recreate textures as needed on subsequent frames.
-    pub fn handle_device_lost(&self, context: &WgpuContext) {
+    /// Rebinds this atlas to a replacement device without changing its identity.
+    ///
+    /// Atlas allocations belong to the old device, so they are discarded and rebuilt lazily on
+    /// the replacement device. Callers keep the same [`Arc<WgpuAtlas>`] in every GPUI window.
+    pub fn replace_gpu_context(
+        &self,
+        device: Arc<wgpu::Device>,
+        queue: Arc<wgpu::Queue>,
+        color_texture_format: wgpu::TextureFormat,
+    ) {
         let mut lock = self.0.lock();
-        lock.device = context.device.clone();
-        lock.queue = context.queue.clone();
-        lock.color_texture_format = context.color_texture_format();
+        lock.device = device;
+        lock.queue = queue;
+        lock.max_texture_size = lock.device.limits().max_texture_dimension_2d;
+        lock.color_texture_format = color_texture_format;
         lock.storage = WgpuAtlasStorage::default();
         lock.tiles_by_key.clear();
         lock.pending_uploads.clear();

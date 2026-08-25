@@ -1,0 +1,11 @@
+[package]
+name = "gpui_embed"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+futures.workspace = true
+gpui.workspace = true
+gpui_wgpu.workspace = true
+uuid.workspace = true

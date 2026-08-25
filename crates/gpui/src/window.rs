@@ -1119,6 +1119,11 @@ pub struct Window {
     active: Rc<Cell<bool>>,
     hovered: Rc<Cell<bool>>,
     pub(crate) needs_present: Rc<Cell<bool>>,
+    /// Generation of the retained scene. This advances only when layout and paint rebuild the
+    /// scene, not when the same scene is encoded into another host target.
+    scene_generation: u64,
+    /// Whether the most recent frame preparation rebuilt the retained scene.
+    scene_changed: bool,
     /// Tracks recent input event timestamps to determine if input is arriving at a high rate.
     /// Used to selectively enable VRR optimization only when input rate exceeds 60fps.
     pub(crate) input_rate_tracker: Rc<RefCell<InputRateTracker>>,
@@ -1623,25 +1628,10 @@ impl Window {
                 }
                 last_frame_time.set(Some(now));
 
-                let next_frame_callbacks = next_frame_callbacks.take();
-                if !next_frame_callbacks.is_empty() {
-                    handle
-                        .update(&mut cx, |_, window, cx| {
-                            for callback in next_frame_callbacks {
-                                callback(window, cx);
-                            }
-                        })
-                        .log_err();
-                }
-
-                // Keep presenting if input was recently arriving at a high rate (>= 60fps).
-                // Once high-rate input is detected, we sustain presentation for 1 second
-                // to prevent display underclocking during active input.
-                let needs_present = request_frame_options.require_presentation
-                    || needs_present.get()
-                    || input_rate_tracker.borrow_mut().is_high_rate();
-
-                if invalidator.is_dirty() || force_render {
+                if invalidator.is_dirty()
+                    || force_render
+                    || !next_frame_callbacks.borrow().is_empty()
+                {
                     measure("frame duration", || {
                         handle
                             .update(&mut cx, |_, window, cx| {
@@ -1650,15 +1640,29 @@ impl Window {
                                     // atlas tile references after a GPU device recovery.
                                     window.refresh();
                                 }
-                                let arena_clear_needed = window.draw(cx);
-                                window.present();
+                                let arena_clear_needed = window.prepare_frame(cx);
+                                // Keep presenting if input was recently arriving at a high rate
+                                // (>= 60fps). Once high-rate input is detected, we sustain
+                                // presentation for 1 second to prevent display underclocking
+                                // during active input.
+                                let needs_present = request_frame_options.require_presentation
+                                    || window.needs_redraw()
+                                    || input_rate_tracker.borrow_mut().is_high_rate();
+                                if needs_present {
+                                    window.present();
+                                }
                                 arena_clear_needed.clear(cx);
                             })
                             .log_err();
                     })
-                } else if needs_present {
+                } else if request_frame_options.require_presentation
+                    || needs_present.get()
+                    || input_rate_tracker.borrow_mut().is_high_rate()
+                {
                     handle
-                        .update(&mut cx, |_, window, _| window.present())
+                        .update(&mut cx, |_, window, _| {
+                            window.present();
+                        })
                         .log_err();
                 }
 
@@ -1867,6 +1871,8 @@ impl Window {
             active,
             hovered,
             needs_present,
+            scene_generation: 0,
+            scene_changed: false,
             input_rate_tracker,
             #[cfg(feature = "input-latency-histogram")]
             input_latency_tracker: InputLatencyTracker::new()?,
@@ -1906,6 +1912,22 @@ impl Window {
 pub struct DispatchEventResult {
     pub propagate: bool,
     pub default_prevented: bool,
+}
+
+/// The state of a window's retained frame after preparation.
+///
+/// A scene generation changes only when GPUI rebuilds layout and paint. The same generation may
+/// be encoded into many host-owned targets, so a host must acknowledge the generation it actually
+/// submitted rather than treating every encode as a new scene. An engine may update a registered
+/// viewport texture and re-encode this unchanged scene without forcing GPUI layout or paint.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FrameStatus {
+    /// Generation of the retained scene.
+    pub scene_generation: u64,
+    /// Whether the most recent preparation rebuilt layout and paint.
+    pub scene_changed: bool,
+    /// Whether a successful host submission still requires presentation acknowledgement.
+    pub presentation_requested: bool,
 }
 
 /// Indicates which region of the window is visible. Content falling outside of this mask will not be
@@ -2804,7 +2826,8 @@ impl Window {
     }
 
     /// Produces a new frame and assigns it to `rendered_frame`. To actually show
-    /// the contents of the new [`Scene`], use [`Self::present`].
+    /// the contents of the new [`Scene`], present [`Self::rendered_scene`] and then call
+    /// [`Self::mark_presented`].
     #[profiling::function]
     pub fn draw(&mut self, cx: &mut App) -> ArenaClearNeeded {
         // Drain unconditionally so a stale first-invalidation timestamp can't
@@ -2917,6 +2940,8 @@ impl Window {
             self.refresh();
         }
         self.needs_present.set(true);
+        self.scene_generation = self.scene_generation.wrapping_add(1);
+        self.scene_changed = true;
 
         if let Some(draw_start) = draw_started_at {
             profiler::record_frame_timing(profiler::FrameTiming {
@@ -2931,6 +2956,75 @@ impl Window {
         // Exit the scope to obtain the arena-clear token this draw owes; the
         // scope's teardown itself happens in `ElementArenaScope::drop`.
         arena_scope.exit(&cx.element_arena)
+    }
+
+    /// Runs pending next-frame callbacks and prepares the next rendered frame when the window is
+    /// dirty. A clean window reuses its current scene generation; hosts may still encode that
+    /// scene when only an engine-owned viewport texture changed. The returned token must be
+    /// cleared after the frame has been presented.
+    pub fn prepare_frame(&mut self, cx: &mut App) -> ArenaClearNeeded {
+        self.scene_changed = false;
+        let callbacks = self.next_frame_callbacks.take();
+        for callback in callbacks {
+            callback(self, cx);
+        }
+
+        if self.invalidator.is_dirty() || self.scene_generation == 0 {
+            self.draw(cx)
+        } else {
+            let arena_scope = ElementArenaScope::enter(&cx.element_arena);
+            arena_scope.exit(&cx.element_arena)
+        }
+    }
+
+    /// Returns the scene retained from the most recently prepared frame.
+    pub fn rendered_scene(&self) -> &Scene {
+        &self.rendered_frame.scene
+    }
+
+    /// Returns whether the retained scene needs to be presented.
+    pub fn needs_redraw(&self) -> bool {
+        self.needs_present.get()
+    }
+
+    /// Returns whether GPUI is dirty and a future preparation may rebuild its scene.
+    pub fn is_dirty(&self) -> bool {
+        self.invalidator.is_dirty()
+    }
+
+    /// Returns the retained-frame state used by host-driven rendering.
+    pub fn frame_status(&self) -> FrameStatus {
+        FrameStatus {
+            scene_generation: self.scene_generation,
+            scene_changed: self.scene_changed,
+            presentation_requested: self.needs_present.get(),
+        }
+    }
+
+    /// Marks a retained scene generation as presented and completes frame bookkeeping.
+    ///
+    /// Returns `false` when the acknowledgement is stale. Hosts should pass the generation from
+    /// [`Self::frame_status`] that was encoded into their command buffer, and call this only after
+    /// every required target submission succeeds (and after swapchain presentation, when used).
+    #[profiling::function]
+    pub fn mark_presented(&mut self, scene_generation: u64) -> bool {
+        if scene_generation != self.scene_generation {
+            return false;
+        }
+        #[cfg(feature = "input-latency-histogram")]
+        self.input_latency_tracker.record_frame_presented();
+        self.needs_present.set(false);
+        profiling::finish_frame!();
+        true
+    }
+
+    /// Presents the retained scene through the native platform window and acknowledges the
+    /// generation immediately. Host-driven integrations must call [`Self::mark_presented`] only
+    /// after their own command submission instead.
+    fn present(&mut self) {
+        let scene_generation = self.scene_generation;
+        self.platform_window.draw(self.rendered_scene());
+        self.mark_presented(scene_generation);
     }
 
     fn record_entities_accessed(&mut self, cx: &mut App) {
@@ -2955,15 +3049,6 @@ impl Window {
         self.invalidator.replace_views(views);
     }
 
-    #[profiling::function]
-    fn present(&mut self) {
-        self.platform_window.draw(&self.rendered_frame.scene);
-        #[cfg(feature = "input-latency-histogram")]
-        self.input_latency_tracker.record_frame_presented();
-        self.needs_present.set(false);
-        profiling::finish_frame!();
-    }
-
     /// Presents the most recently drawn frame if it hasn't been presented yet.
     ///
     /// Benchmarks drive drawing synchronously rather than through a platform
@@ -2971,7 +3056,7 @@ impl Window {
     /// submit the frame like production presentation would.
     #[cfg(feature = "bench")]
     pub fn present_if_needed(&mut self) {
-        if self.needs_present.get() {
+        if self.needs_redraw() {
             self.present();
         }
     }
@@ -4652,6 +4737,24 @@ impl Window {
             texture,
             texture_size,
         });
+    }
+
+    /// Paints a host-owned external surface into the next scene at the current z-index.
+    ///
+    /// The host resolves `id` through its backend registry while encoding. The texture is sampled
+    /// in scene order, clipped by the current content mask, and never copied through CPU memory.
+    /// This method is valid on every platform and is intended for engine/editor viewport content.
+    pub fn paint_external_surface(&mut self, bounds: Bounds<Pixels>, id: crate::ExternalSurfaceId) {
+        self.invalidator.debug_assert_paint();
+        let bounds = self.snap_bounds(bounds);
+        self.next_frame
+            .scene
+            .insert_primitive(crate::scene::ExternalSurface {
+                order: 0,
+                bounds,
+                content_mask: self.snapped_content_mask(),
+                id,
+            });
     }
 
     /// Removes an image from the sprite atlas.
