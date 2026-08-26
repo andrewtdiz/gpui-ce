@@ -41,6 +41,13 @@ jobs:
           fi
           CHANGED_FILES="$(git diff --name-only "$COMPARE_REV" "$GITHUB_SHA")"
 
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "run_tests=true" >> "$GITHUB_OUTPUT"
+            echo "run_style=true" >> "$GITHUB_OUTPUT"
+            echo "run_docs=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           check_pattern() {
             local name="$1" pattern="$2" invert="${3:-false}"
             if [ "$invert" = "true" ]; then
