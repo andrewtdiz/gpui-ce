@@ -27,7 +27,7 @@
 //!     &external_registry,
 //! )?;
 //! queue.submit([encoder.finish()]);
-//! surface_frame.present();
+//! queue.present(surface_frame);
 //! ui.mark_presented(frame.scene_generation)?;
 //! schedule_next_wake(poll.next_deadline);
 //! apply_commands(ui.take_host_commands());

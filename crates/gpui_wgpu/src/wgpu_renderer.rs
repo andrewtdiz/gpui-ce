@@ -2653,6 +2653,7 @@ impl WgpuRenderer {
                 .unwrap_or(wgpu::PresentMode::Fifo),
             desired_maximum_frame_latency: 2,
             alpha_mode,
+            color_space: wgpu::SurfaceColorSpace::Auto,
             view_formats: vec![],
         };
         surface.configure(&context.device, &surface_config);
@@ -2758,12 +2759,12 @@ impl WgpuRenderer {
         match result {
             Ok(_) => {
                 queue.submit(Some(encoder.finish()));
-                frame.present();
+                queue.present(frame);
                 true
             }
             Err(error) => {
                 log::error!("failed to encode GPUI scene: {error:#}");
-                frame.present();
+                queue.present(frame);
                 false
             }
         }
@@ -3116,6 +3117,7 @@ mod tests {
             power_preference: wgpu::PowerPreference::LowPower,
             compatible_surface: None,
             force_fallback_adapter: false,
+            apply_limit_buckets: false,
         }))
         .map_err(|error| anyhow::anyhow!("failed to request adapter: {error}"))?;
         let requirements = WgpuSceneRenderer::requirements(&adapter);
@@ -3169,6 +3171,7 @@ mod tests {
             power_preference: wgpu::PowerPreference::LowPower,
             compatible_surface: None,
             force_fallback_adapter: false,
+            apply_limit_buckets: false,
         }))
         .map_err(|error| anyhow::anyhow!("failed to request adapter: {error}"))?;
         let requirements = WgpuSceneRenderer::requirements(&adapter);

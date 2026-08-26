@@ -166,7 +166,7 @@ ashpd = { version = "0.13", default-features = false, features = [
 libc = "0.2"
 smol = "2.0"
 util = { path = "crates/gpui_zed_util", version = "0.2.2", package = "gpui_zed_util" }
-wgpu = "29.0.3"
+wgpu = "=30.0.1"
 criterion = { version = "0.5", features = ["html_reports"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = [
   "NSButton",

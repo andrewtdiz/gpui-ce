@@ -517,13 +517,13 @@ impl WindowedApp {
         if let Err(error) =
             ui.encode_with_external_surfaces(target, &mut encoder, &self.external_registry)
         {
-            frame.present();
+            gpu.queue.present(frame);
             eprintln!("windowed_wgpu failed to encode a frame: {error}");
             event_loop.exit();
             return;
         }
         gpu.queue.submit(Some(encoder.finish()));
-        frame.present();
+        gpu.queue.present(frame);
         if let Err(error) = ui.mark_presented(frame_status.scene_generation) {
             eprintln!("windowed_wgpu failed to acknowledge a frame: {error}");
             event_loop.exit();
@@ -556,6 +556,7 @@ impl WindowedApp {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: Some(&surface),
             force_fallback_adapter: false,
+            apply_limit_buckets: false,
         }))
         .map_err(|error| format!("failed to request WGPU adapter: {error}"))?;
         let surface_caps = surface.get_capabilities(&adapter);
@@ -596,6 +597,7 @@ impl WindowedApp {
             },
             desired_maximum_frame_latency: 2,
             alpha_mode: surface_caps.alpha_modes[0],
+            color_space: wgpu::SurfaceColorSpace::Auto,
             view_formats: vec![],
         };
         surface.configure(&host_gpu.device, &surface_config);

@@ -236,7 +236,7 @@ fn readback_target(
         .recv()
         .map_err(|error| std::io::Error::other(format!("GPU readback callback failed: {error}")))?
         .map_err(|error| std::io::Error::other(format!("GPU readback mapping failed: {error}")))?;
-    let mapped = slice.get_mapped_range().to_vec();
+    let mapped = slice.get_mapped_range()?.to_vec();
     readback.unmap();
     Ok((mapped, bytes_per_row))
 }
@@ -260,6 +260,7 @@ fn main() -> gpui::Result<()> {
         power_preference: wgpu::PowerPreference::LowPower,
         compatible_surface: None,
         force_fallback_adapter: false,
+        apply_limit_buckets: false,
     }))
     .map_err(|error| std::io::Error::other(format!("failed to request adapter: {error}")))?;
     let requirements = WgpuSceneRenderer::requirements(&adapter);

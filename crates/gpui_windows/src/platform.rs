@@ -554,7 +554,9 @@ impl Platform for WindowsPlatform {
         options: WindowParams,
     ) -> Result<Box<dyn PlatformWindow>> {
         let window = WindowsWindow::new(handle, options, self.generate_creation_info())?;
-        let handle = window.get_raw_handle();
+        let handle = window
+            .get_raw_handle()
+            .ok_or_else(|| anyhow!("native WindowsWindow did not provide an HWND"))?;
         self.raw_window_handles.write().push(handle.into());
 
         Ok(Box::new(window))

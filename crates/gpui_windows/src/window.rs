@@ -1131,8 +1131,8 @@ impl PlatformWindow for WindowsWindow {
         self.state.renderer.borrow().sprite_atlas().clone()
     }
 
-    fn get_raw_handle(&self) -> HWND {
-        self.0.hwnd
+    fn get_raw_handle(&self) -> Option<HWND> {
+        Some(self.0.hwnd)
     }
 
     fn gpu_specs(&self) -> Option<GpuSpecs> {

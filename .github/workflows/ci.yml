@@ -200,6 +200,12 @@ jobs:
       - uses: extractions/setup-just@v2
       - run: just build
       - run: just test
+      - name: Check gpui_embed
+        run: cargo check -p gpui_embed --all-targets
+      - name: Test gpui_embed
+        run: cargo test -p gpui_embed
+      - name: Check gpui_embed examples
+        run: cargo check -p gpui_embed --examples
 
   # Examples
   check-examples:
