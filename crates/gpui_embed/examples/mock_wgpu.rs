@@ -404,7 +404,7 @@ fn main() -> gpui::Result<()> {
     let unpadded_bytes_per_row = WIDTH * 4;
     let non_background_pixels = mapped
         .chunks(bytes_per_row as usize)
-        .flat_map(|row| row[..unpadded_bytes_per_row as usize].chunks(4))
+        .flat_map(|row| row[..unpadded_bytes_per_row as usize].as_chunks::<4>().0)
         .filter(|pixel| pixel[0] > 20 || pixel[1] > 20 || pixel[2] > 20)
         .count();
     let bright_text_pixels = mapped
@@ -417,7 +417,7 @@ fn main() -> gpui::Result<()> {
     let triangle_pixels = viewport_readback
         .0
         .chunks(viewport_readback.1 as usize)
-        .flat_map(|row| row.chunks_exact(4))
+        .flat_map(|row| row.as_chunks::<4>().0)
         .filter(|pixel| {
             pixel
                 .iter()
@@ -429,7 +429,7 @@ fn main() -> gpui::Result<()> {
     let child_origin_y = viewport_device_bounds.origin.y.0.max(0) as u32;
     let external_green_pixels = mapped
         .chunks(bytes_per_row as usize)
-        .flat_map(|row| row[..unpadded_bytes_per_row as usize].chunks_exact(4))
+        .flat_map(|row| row[..unpadded_bytes_per_row as usize].as_chunks::<4>().0)
         .filter(|pixel| pixel[1] > 150 && pixel[0] < 180 && pixel[2] < 180)
         .count();
     let inside_viewport = pixel(
@@ -744,12 +744,12 @@ fn main() -> gpui::Result<()> {
     )?;
     let recovery_bright_text_pixels = recovery_pixels
         .chunks(recovery_stride as usize)
-        .flat_map(|row| row[..(WIDTH * 4) as usize].chunks_exact(4))
+        .flat_map(|row| row[..(WIDTH * 4) as usize].as_chunks::<4>().0)
         .filter(|pixel| pixel[0] > 180 && pixel[1] > 180 && pixel[2] > 180)
         .count();
     let recovery_red_pixels = recovery_pixels
         .chunks(recovery_stride as usize)
-        .flat_map(|row| row[..(WIDTH * 4) as usize].chunks_exact(4))
+        .flat_map(|row| row[..(WIDTH * 4) as usize].as_chunks::<4>().0)
         .filter(|pixel| pixel[0] > 180 && pixel[1] < 110 && pixel[2] < 110)
         .count();
     assert!(

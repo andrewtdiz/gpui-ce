@@ -2493,8 +2493,11 @@ fn create_surface(
 /// recovery. The reusable scene renderer below it only owns GPUI GPU resources and command
 /// encoding.
 pub struct WgpuRenderer {
+    #[cfg(not(target_family = "wasm"))]
     context: Option<GpuContext>,
+    #[cfg(not(target_family = "wasm"))]
     compositor_gpu: Option<CompositorGpuHint>,
+    #[cfg(not(target_family = "wasm"))]
     extra_requirements: Option<WgpuDeviceRequirements>,
     scene: WgpuSceneRenderer,
     surface: Option<wgpu::Surface<'static>>,
@@ -2579,12 +2582,12 @@ impl WgpuRenderer {
     }
 
     fn new_internal(
-        context_handle: Option<GpuContext>,
+        _context_handle: Option<GpuContext>,
         context: &WgpuContext,
         surface: wgpu::Surface<'static>,
         config: WgpuSurfaceConfig,
-        compositor_gpu: Option<CompositorGpuHint>,
-        extra_requirements: Option<WgpuDeviceRequirements>,
+        _compositor_gpu: Option<CompositorGpuHint>,
+        _extra_requirements: Option<WgpuDeviceRequirements>,
         atlas: Arc<WgpuAtlas>,
     ) -> anyhow::Result<Self> {
         let surface_caps = surface.get_capabilities(&context.adapter);
@@ -2674,9 +2677,12 @@ impl WgpuRenderer {
         let last_error = Arc::new(Mutex::new(None));
         scene.install_error_handler(last_error.clone());
         Ok(Self {
-            context: context_handle,
-            compositor_gpu,
-            extra_requirements,
+            #[cfg(not(target_family = "wasm"))]
+            context: _context_handle,
+            #[cfg(not(target_family = "wasm"))]
+            compositor_gpu: _compositor_gpu,
+            #[cfg(not(target_family = "wasm"))]
+            extra_requirements: _extra_requirements,
             scene,
             surface: Some(surface),
             surface_config,
