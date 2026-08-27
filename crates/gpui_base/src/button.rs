@@ -20,7 +20,7 @@ type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
 pub struct Button {
     id: ElementId,
     base: Stateful<Div>,
-    style: StyleRefinement,
+    style: Box<StyleRefinement>,
     semantic_styles: ButtonStyles,
     selected: bool,
     disabled: bool,
@@ -40,7 +40,7 @@ impl Button {
         Self {
             base: div().id(id.clone()),
             id,
-            style: StyleRefinement::default(),
+            style: Box::new(StyleRefinement::default()),
             semantic_styles: ButtonStyles::default(),
             selected: false,
             disabled: false,
@@ -140,10 +140,12 @@ impl Button {
 
     fn resolved_style(&self) -> StyleRefinement {
         crate::state_style::resolve_style(
-            &self.style,
+            self.style.as_ref(),
             [
-                self.selected.then_some(&self.semantic_styles.selected),
-                self.disabled.then_some(&self.semantic_styles.disabled),
+                self.selected
+                    .then_some(self.semantic_styles.selected.as_ref()),
+                self.disabled
+                    .then_some(self.semantic_styles.disabled.as_ref()),
             ]
             .into_iter()
             .flatten(),
@@ -164,14 +166,15 @@ impl Selectable for Button {
 /// Semantic styles supported by [`Button`].
 #[derive(Default)]
 pub struct ButtonStyles {
-    selected: StyleRefinement,
-    disabled: StyleRefinement,
+    selected: Box<StyleRefinement>,
+    disabled: Box<StyleRefinement>,
 }
 
 impl ButtonStyles {
     /// Refines the root style when the button is selected.
     pub fn selected(mut self, build: impl FnOnce(StateStyle) -> StateStyle) -> Self {
         self.selected
+            .as_mut()
             .refine(&build(StateStyle::default()).into_refinement());
         self
     }
@@ -179,6 +182,7 @@ impl ButtonStyles {
     /// Refines the root style when the button is disabled.
     pub fn disabled(mut self, build: impl FnOnce(StateStyle) -> StateStyle) -> Self {
         self.disabled
+            .as_mut()
             .refine(&build(StateStyle::default()).into_refinement());
         self
     }
@@ -186,7 +190,7 @@ impl ButtonStyles {
 
 impl Styled for Button {
     fn style(&mut self) -> &mut StyleRefinement {
-        &mut self.style
+        self.style.as_mut()
     }
 }
 

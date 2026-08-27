@@ -186,7 +186,7 @@ impl ButtonVariant {
 pub struct Button {
     id: ElementId,
     base: gpui_base::Button,
-    icon: Option<ButtonIcon>,
+    icon: Option<Box<ButtonIcon>>,
     label: Option<SharedString>,
     /// The announced name, when the visible content is not it.
     accessibility_label: Option<SharedString>,
@@ -333,7 +333,7 @@ impl Button {
 
     /// Set the icon of the button, if the Button have no label, the button well in Icon Button mode.
     pub fn icon(mut self, icon: impl Into<ButtonIcon>) -> Self {
-        self.icon = Some(icon.into());
+        self.icon = Some(Box::new(icon.into()));
         self
     }
 
@@ -645,7 +645,8 @@ impl RenderOnce for Button {
             })
             .when_some(self.icon, |this, icon| {
                 this.child(
-                    icon.loading_icon(self.loading_icon)
+                    (*icon)
+                        .loading_icon(self.loading_icon)
                         .loading(self.loading)
                         .with_size(icon_size),
                 )
@@ -1257,6 +1258,12 @@ mod tests {
     use super::*;
     use crate::IconName;
     use gpui::{linear_color_stop, linear_gradient, px};
+    use std::mem::size_of;
+
+    #[test]
+    fn button_size_fits_editor_stack_budget() {
+        assert!(size_of::<Button>() <= 4096);
+    }
 
     /// A button's announced name is its label, unless it was given one — which
     /// is the case an icon-only button and a row-shaped button both need.
