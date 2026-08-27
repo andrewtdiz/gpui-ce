@@ -1,17 +1,19 @@
 use crate::{HostGpu, HostRenderTarget, OffscreenTarget, dispatcher::EmbeddedDispatcher};
 use gpui::{
-    AnyWindowHandle, AppContext, BackgroundExecutor, Bounds, Capslock, ClipboardItem, CursorStyle,
-    DevicePixels, DispatchEventResult, DisplayId, DummyKeyboardMapper, ForegroundExecutor, Keymap,
-    MacActivationPolicy, Modifiers, PathPromptOptions, Pixels, Platform, PlatformAtlas,
-    PlatformDisplay, PlatformInput, PlatformInputHandler, PlatformKeyboardLayout,
-    PlatformKeyboardMapper, PlatformTextSystem, PlatformWindow, Point, PromptButton, PromptLevel,
-    Render, RequestFrameOptions, Scene, Size, Task, ThermalState, Window, WindowAppearance,
-    WindowBackgroundAppearance, WindowBounds, WindowControlArea, WindowDecorations, WindowInsets,
-    WindowKind, WindowOptions, WindowParams, div,
+    AnyWindowHandle, AppContext, AssetSource, BackgroundExecutor, Bounds, Capslock, ClipboardItem,
+    CursorStyle, DevicePixels, DispatchEventResult, DisplayId, DummyKeyboardMapper,
+    ForegroundExecutor, Keymap, MacActivationPolicy, Modifiers, PathPromptOptions, Pixels,
+    Platform, PlatformAtlas, PlatformDisplay, PlatformInput, PlatformInputHandler,
+    PlatformKeyboardLayout, PlatformKeyboardMapper, PlatformTextSystem, PlatformWindow, Point,
+    PromptButton, PromptLevel, Render, RequestFrameOptions, Scene, SharedString, Size, Task,
+    ThermalState, Window, WindowAppearance, WindowBackgroundAppearance, WindowBounds,
+    WindowControlArea, WindowDecorations, WindowInsets, WindowKind, WindowOptions, WindowParams,
+    div,
 };
 use gpui_wgpu::wgpu::rwh::{HandleError, HasDisplayHandle, HasWindowHandle};
 use gpui_wgpu::{CosmicTextSystem, WgpuAtlas};
 use std::{
+    borrow::Cow,
     cell::{Cell, RefCell},
     collections::VecDeque,
     path::{Path, PathBuf},
@@ -79,6 +81,8 @@ pub struct EmbeddedConfig {
     pub services: HostServices,
     /// Optional callback used to wake the host run loop when GPUI queues work.
     pub wake: Option<Arc<dyn Fn() + Send + Sync>>,
+    /// Optional host-owned source for GPUI and component SVG assets.
+    pub assets: Option<Arc<dyn AssetSource>>,
 }
 
 impl EmbeddedConfig {
@@ -89,6 +93,7 @@ impl EmbeddedConfig {
             metrics: WindowMetrics::default(),
             services: HostServices::default(),
             wake: None,
+            assets: None,
         }
     }
 
@@ -104,6 +109,12 @@ impl EmbeddedConfig {
         self
     }
 
+    /// Installs a host-owned source for GPUI and component assets.
+    pub fn with_assets(mut self, assets: impl AssetSource) -> Self {
+        self.assets = Some(Arc::new(assets));
+        self
+    }
+
     /// Installs synchronous clipboard callbacks supplied by the host.
     pub fn with_clipboard(
         mut self,
@@ -113,6 +124,18 @@ impl EmbeddedConfig {
         self.services.read_clipboard = Some(Arc::new(read));
         self.services.write_clipboard = Some(Arc::new(write));
         self
+    }
+}
+
+struct SharedAssetSource(Arc<dyn AssetSource>);
+
+impl AssetSource for SharedAssetSource {
+    fn load(&self, path: &str) -> gpui::Result<Option<Cow<'static, [u8]>>> {
+        self.0.load(path)
+    }
+
+    fn list(&self, path: &str) -> gpui::Result<Vec<SharedString>> {
+        self.0.list(path)
     }
 }
 
@@ -988,20 +1011,25 @@ impl EmbeddedGpui {
         let launch_error = Rc::new(RefCell::new(None));
         let launch_error_for_callback = launch_error.clone();
         let platform_for_callback = platform.clone();
-        let application =
-            gpui::Application::new_inaccessible(platform.clone()).run_embedded(move |cx| {
-                let options = WindowOptions {
-                    window_bounds: Some(WindowBounds::Windowed(metrics.bounds)),
-                    titlebar: None,
-                    kind: WindowKind::Normal,
-                    window_decorations: Some(WindowDecorations::Client),
-                    ..Default::default()
-                };
-                if let Err(error) = cx.open_window(options, build_root_view) {
-                    *launch_error_for_callback.borrow_mut() = Some(error.to_string());
-                }
-                let _ = platform_for_callback.window();
-            });
+        let application = gpui::Application::new_inaccessible(platform.clone());
+        let application = if let Some(assets) = config.assets.clone() {
+            application.with_assets(SharedAssetSource(assets))
+        } else {
+            application
+        };
+        let application = application.run_embedded(move |cx| {
+            let options = WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(metrics.bounds)),
+                titlebar: None,
+                kind: WindowKind::Normal,
+                window_decorations: Some(WindowDecorations::Client),
+                ..Default::default()
+            };
+            if let Err(error) = cx.open_window(options, build_root_view) {
+                *launch_error_for_callback.borrow_mut() = Some(error.to_string());
+            }
+            let _ = platform_for_callback.window();
+        });
         if let Some(error) = launch_error.take() {
             return Err(std::io::Error::other(error).into());
         }

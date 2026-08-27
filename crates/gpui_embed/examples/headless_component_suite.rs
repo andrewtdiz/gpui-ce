@@ -5,28 +5,34 @@
 //! two frames are joined into `target/gpui-embed/headless-component-suite.png` for local review.
 
 use gpui::{
-    AppContext, Context, DevicePixels, IntoElement, Render, Window, block_on, div, prelude::*, px,
-    size,
+    AppContext, Bounds, Context, DevicePixels, Entity, IntoElement, Pixels, Render, Window,
+    block_on, div, prelude::*, px, size,
 };
 use gpui_component::{
-    ActiveTheme as _, Disableable as _, Root, StyledExt as _, Theme, ThemeMode,
+    ActiveTheme as _, Disableable as _, Icon, IconName, IndexPath, Root, Sizable as _,
+    StyledExt as _, Theme, ThemeMode,
     badge::Badge,
     button::{Button, ButtonVariants as _},
     checkbox::Checkbox,
     label::Label,
     progress::Progress,
+    select::{SearchableVec, Select, SelectState},
     separator::Separator,
     switch::Switch,
 };
 use gpui_embed::{EmbeddedConfig, EmbeddedGpui, HostGpu, OffscreenTarget, WindowMetrics};
 use gpui_wgpu::{WgpuSceneRenderer, wgpu};
 use image::{ColorType, ImageFormat};
-use std::{collections::HashSet, fs, path::PathBuf, sync::Arc};
+use std::{cell::RefCell, collections::HashSet, fs, path::PathBuf, rc::Rc, sync::Arc};
 
 const WIDTH: u32 = 640;
 const HEIGHT: u32 = 520;
 
-struct ComponentSuite;
+struct ComponentSuite {
+    select: Entity<SelectState<SearchableVec<String>>>,
+    icon_bounds: Rc<RefCell<Option<Bounds<Pixels>>>>,
+    select_bounds: Rc<RefCell<Option<Bounds<Pixels>>>>,
+}
 
 impl Render for ComponentSuite {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -35,6 +41,8 @@ impl Render for ComponentSuite {
         } else {
             "Light theme"
         };
+        let icon_bounds = self.icon_bounds.clone();
+        let select_bounds = self.select_bounds.clone();
 
         div()
             .size_full()
@@ -82,7 +90,49 @@ impl Render for ComponentSuite {
                                         .bg(cx.theme().secondary)
                                         .text_sm()
                                         .child(mode),
-                                ),
+                                    ),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .mt_5()
+                            .flex()
+                            .items_center()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .size(px(36.))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded_md()
+                                    .bg(cx.theme().secondary)
+                                    .on_children_prepainted(move |bounds, _, _| {
+                                        *icon_bounds.borrow_mut() = bounds.first().copied();
+                                    })
+                                    .child(
+                                        Icon::new(IconName::Plus)
+                                            .size_5()
+                                            .text_color(cx.theme().primary),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child("Asset-backed IconName + Select caret"),
+                            )
+                            .child(
+                                div()
+                                    .w(px(180.))
+                                    .on_children_prepainted(move |bounds, _, _| {
+                                        *select_bounds.borrow_mut() = bounds.first().copied();
+                                    })
+                                    .child(
+                                        Select::new(&self.select)
+                                            .small()
+                                            .placeholder("Choose a mode"),
+                                    ),
                             ),
                     )
                     .child(Separator::horizontal().my_5())
@@ -326,6 +376,75 @@ fn assert_nontrivial(name: &str, rgba: &[u8]) {
     );
 }
 
+fn assert_asset_bounds(
+    name: &str,
+    rgba: &[u8],
+    icon_bounds: Bounds<Pixels>,
+    select_bounds: Bounds<Pixels>,
+) {
+    let icon_x = icon_bounds.origin.x.as_f32().round().max(0.) as u32;
+    let icon_y = icon_bounds.origin.y.as_f32().round().max(0.) as u32;
+    let icon_width = icon_bounds.size.width.as_f32().round().max(1.) as u32;
+    let icon_height = icon_bounds.size.height.as_f32().round().max(1.) as u32;
+    let select_x = select_bounds.origin.x.as_f32().round().max(0.) as u32;
+    let select_y = select_bounds.origin.y.as_f32().round().max(0.) as u32;
+    let select_width = select_bounds.size.width.as_f32().round().max(1.) as u32;
+    let select_height = select_bounds.size.height.as_f32().round().max(1.) as u32;
+
+    assert!(
+        icon_x < WIDTH && icon_y < HEIGHT,
+        "{name} icon bounds are outside the frame"
+    );
+    assert!(
+        select_x < WIDTH && select_y < HEIGHT,
+        "{name} select bounds are outside the frame"
+    );
+
+    let mut icon_colors = HashSet::new();
+    let mut icon_luminance = (u8::MAX, 0u8);
+    for y in icon_y..(icon_y + icon_height).min(HEIGHT) {
+        for x in icon_x..(icon_x + icon_width).min(WIDTH) {
+            let index = ((y * WIDTH + x) * 4) as usize;
+            let pixel = &rgba[index..index + 4];
+            if pixel[3] > 200 {
+                icon_colors.insert([pixel[0] / 16, pixel[1] / 16, pixel[2] / 16]);
+                let luminance = ((u16::from(pixel[0]) * 54
+                    + u16::from(pixel[1]) * 183
+                    + u16::from(pixel[2]) * 19)
+                    / 256) as u8;
+                icon_luminance.0 = icon_luminance.0.min(luminance);
+                icon_luminance.1 = icon_luminance.1.max(luminance);
+            }
+        }
+    }
+
+    let mut select_colors = HashSet::new();
+    for y in select_y..(select_y + select_height).min(HEIGHT) {
+        for x in select_x..(select_x + select_width).min(WIDTH) {
+            let index = ((y * WIDTH + x) * 4) as usize;
+            let pixel = &rgba[index..index + 4];
+            if pixel[3] > 200 {
+                select_colors.insert([pixel[0] / 16, pixel[1] / 16, pixel[2] / 16]);
+            }
+        }
+    }
+
+    println!(
+        "{name}: icon_bounds={icon_bounds:?}, select_bounds={select_bounds:?}, icon_colors={}, icon_luminance={:?}, select_colors={}",
+        icon_colors.len(),
+        icon_luminance,
+        select_colors.len()
+    );
+    assert!(
+        icon_colors.len() > 1 && icon_luminance.1.saturating_sub(icon_luminance.0) > 20,
+        "{name} had no visible IconName pixels"
+    );
+    assert!(
+        select_colors.len() > 2,
+        "{name} Select trigger/caret was not visible"
+    );
+}
+
 fn stitch_frames(light: &[u8], dark: &[u8]) -> Vec<u8> {
     let row_bytes = (WIDTH * 4) as usize;
     let mut joined = Vec::with_capacity(light.len() + dark.len());
@@ -354,19 +473,42 @@ fn artifact_path() -> PathBuf {
 fn main() -> gpui::Result<()> {
     let gpu = create_host_gpu()?;
     let metrics = WindowMetrics::new(size(px(WIDTH as f32), px(HEIGHT as f32)), 1.0);
+    let icon_bounds = Rc::new(RefCell::new(None));
+    let select_bounds = Rc::new(RefCell::new(None));
+    let icon_bounds_for_root = icon_bounds.clone();
+    let select_bounds_for_root = select_bounds.clone();
     let ui = EmbeddedGpui::new_with_root(
-        EmbeddedConfig::new(gpu.clone()).with_metrics(metrics),
+        EmbeddedConfig::new(gpu.clone())
+            .with_metrics(metrics)
+            .with_assets(gpui_component_assets::Assets),
         |window, cx| {
             // Stable verification images should not depend on wall-clock animation progress.
             cx.set_reduce_motion(true);
             gpui_component::init(cx);
             Theme::change(ThemeMode::Light, Some(window), cx);
-            let suite = cx.new(|_| ComponentSuite);
+            let select = cx.new(|cx| {
+                SelectState::new(
+                    SearchableVec::new(["Play", "Edit", "Preview"].map(str::to_owned)),
+                    Some(IndexPath::default().row(0)),
+                    window,
+                    cx,
+                )
+            });
+            let suite = cx.new(|_| ComponentSuite {
+                select,
+                icon_bounds: icon_bounds_for_root,
+                select_bounds: select_bounds_for_root,
+            });
             cx.new(|cx| Root::new(suite, window, cx).bordered(false))
         },
     )?;
 
+    let _warmup = render_frame(&ui, &gpu)?;
     let light = render_frame(&ui, &gpu)?;
+    let light_icon_bounds =
+        (*icon_bounds.borrow()).expect("light IconName bounds were not recorded");
+    let light_select_bounds =
+        (*select_bounds.borrow()).expect("light Select bounds were not recorded");
 
     let window = ui.window_handle();
     ui.update(|cx| {
@@ -375,6 +517,9 @@ fn main() -> gpui::Result<()> {
         })
     })?;
     let dark = render_frame(&ui, &gpu)?;
+    let dark_icon_bounds = (*icon_bounds.borrow()).expect("dark IconName bounds were not recorded");
+    let dark_select_bounds =
+        (*select_bounds.borrow()).expect("dark Select bounds were not recorded");
 
     // Persist successful GPU readbacks before analyzing them so a threshold failure still leaves
     // an artifact that explains what the renderer produced.
@@ -391,6 +536,8 @@ fn main() -> gpui::Result<()> {
     )
     .map_err(|error| std::io::Error::other(format!("failed to write PNG: {error}")))?;
 
+    assert_asset_bounds("light", &light, light_icon_bounds, light_select_bounds);
+    assert_asset_bounds("dark", &dark, dark_icon_bounds, dark_select_bounds);
     assert_nontrivial("light", &light);
     assert_nontrivial("dark", &dark);
 
