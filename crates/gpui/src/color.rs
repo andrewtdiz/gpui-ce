@@ -1,4 +1,5 @@
-use palette::{IntoColor, OklabHue, Oklcha, RgbHue};
+pub use palette::IntoColor;
+use palette::{OklabHue, Oklcha, RgbHue};
 use schemars::{JsonSchema, json_schema};
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Display, Formatter};
@@ -161,6 +162,13 @@ pub trait ColorExt {
     /// Where 0.0 will leave the color unchanged, and 1.0 will completely fade out the color.
     fn fade_out(&mut self, factor: f32);
 
+    /// Returns this color with its alpha channel replaced by `alpha`.
+    ///
+    /// This preserves GPUI's pre-palette color API for component libraries.
+    fn alpha(&self, alpha: f32) -> Self
+    where
+        Self: Sized;
+
     /// Multiplies the alpha value of the color by a given factor and returns a new color.
     /// If the color was previously opaque, then this is equivalent to
     /// [`with_alpha`](palette::WithAlpha::with_alpha).
@@ -205,6 +213,12 @@ impl ColorExt for Rgba {
         self.alpha *= 1.0 - factor.clamp(0., 1.);
     }
 
+    fn alpha(&self, alpha: f32) -> Self {
+        let mut color = *self;
+        color.alpha = alpha.clamp(0., 1.);
+        color
+    }
+
     fn opacity(&self, factor: f32) -> Self {
         let mut color = *self;
         color.alpha *= factor.clamp(0., 1.);
@@ -220,6 +234,12 @@ impl ColorExt for Hsla {
 
     fn fade_out(&mut self, factor: f32) {
         self.alpha *= 1.0 - factor.clamp(0., 1.);
+    }
+
+    fn alpha(&self, alpha: f32) -> Self {
+        let mut color = *self;
+        color.alpha = alpha.clamp(0., 1.);
+        color
     }
 
     fn opacity(&self, factor: f32) -> Self {

@@ -4,6 +4,10 @@ members = [
   "./crates/gpui_web/",
   "./crates/gpui_wgpu/",
   "./crates/gpui_embed/",
+  "./crates/gpui_base/",
+  "./crates/gpui_component/",
+  "./crates/gpui_component_assets/",
+  "./crates/gpui_component_macros/",
   "./crates/gpui_linux/",
   "./crates/gpui_macos/",
   "./crates/gpui_tokio/",
@@ -41,6 +45,7 @@ accesskit_macos = "0.26.0"
 accesskit_unix = "0.22.0"
 accesskit_windows = "0.33.1"
 anyhow = "1.0.86"
+instant = { version = "0.1", features = ["wasm-bindgen"] }
 async-task = "4.7"
 backtrace = "0.3"
 bitflags = "2.6.0"
@@ -74,6 +79,8 @@ image = "0.25.1"
 inventory = "0.3.19"
 itertools = "0.14.0"
 log = { version = "0.4.16", features = ["kv_unstable_serde", "serde"] }
+lsp-types = { version = "0.97.0", features = ["proposed"] }
+notify = "7.0.0"
 palette = { version = "0.7.6", features = ["serializing"] }
 parking_lot = "0.12.1"
 postage = { version = "0.5", features = ["futures-traits"] }
@@ -82,11 +89,19 @@ chrono = { version = "0.4", features = ["serde"] }
 profiling = "1"
 rand = "0.9.4"
 regex = "1.5"
+reqwest = { version = "0.12", default-features = false }
 refineable = { path = "crates/gpui_refineable", version = "0.2.2", package = "gpui_refineable" }
+ropey = { version = "=2.0.0-beta.1", features = [
+  "metric_chars",
+  "metric_lines_lf",
+  "metric_utf16",
+] }
+rust-i18n = "4.2.0"
 scheduler = { path = "crates/gpui_scheduler", version = "0.2.2", package = "gpui_scheduler" }
 schemars = { version = "1.0", features = ["indexmap2"] }
 serde = { version = "1.0.221", features = ["derive", "rc"] }
 serde_json = { version = "1.0.144", features = ["preserve_order", "raw_value"] }
+serde_repr = "0.1"
 slotmap = "1.0.6"
 smallvec = { version = "1.6", features = ["union", "const_new"] }
 async-channel = "2.5.0"
@@ -94,6 +109,7 @@ stacksafe = "1.0"
 strum = { version = "0.27.2", features = ["derive"] }
 sum_tree = { path = "crates/gpui_sum_tree", version = "0.2.2", package = "gpui_sum_tree" }
 thiserror = "2.0.12"
+tracing = "0.1.41"
 hdrhistogram = "7"
 pollster = "0.4.0"
 url = "2.2"
@@ -145,6 +161,11 @@ metal = "0.33"
 scap = { version = "0.0.8-zed", package = "zed-scap", default-features = false }
 env_logger = "0.11"
 unicode-segmentation = "1.10"
+syntect = { version = "5.3.0", default-features = false, features = [
+  "parsing",
+  "default-syntaxes",
+  "regex-fancy",
+] }
 
 wasm-bindgen = "0.2.120"
 wasm-bindgen-futures = "0.4"
@@ -190,6 +211,11 @@ gpui_web = { path = "./crates/gpui_web/", version = "0.1.0" }
 
 gpui_wgpu = { path = "./crates/gpui_wgpu/", version = "0.1.0" }
 gpui_embed = { path = "./crates/gpui_embed/", version = "0.1.0" }
+
+gpui-base = { path = "./crates/gpui_base/", version = "0.5.2" }
+gpui-component = { path = "./crates/gpui_component/", version = "0.5.2" }
+gpui-component-assets = { path = "./crates/gpui_component_assets/", version = "0.5.1" }
+gpui-component-macros = { path = "./crates/gpui_component_macros/", version = "0.5.1" }
 
 gpui_macros = { path = "./crates/gpui_macros/", version = "0.1.0" }
 gpui_shared_string = { path = "./crates/gpui_shared_string/", version = "0.1.0" }

@@ -32,7 +32,22 @@ We'd like to be a premiere Rust GUI library! For the time being, we're working i
 If you'd like to join discussions and help us forge an path forward, please join the discord.
 
 #### Can I use GPUI-CE with gpui-component?
-100% Because we're a drop-in for GPUI, any component library or surrounding project should work 1:1 through the use of a [patch block](https://doc.rust-lang.org/cargo/reference/overriding-dependencies.html). DO NOTE: We track the latest upstream -- if there's breaking changes and the library you're pulling in hasn't updated yet, gpui-ce cannot help you. Otherwise, we treat any mismatches as bugs.
+The workspace now carries a compatibility snapshot of `longbridge/gpui-component` and a
+host-embedded port of its `hello_world` example. It exercises `gpui_component::init`, `Root`,
+theme access, and an interactive primary `Button` while the application retains ownership of
+the native window, WGPU device, command encoding, submission, and presentation.
+
+Run it with:
+
+```sh
+cargo run -p gpui_embed --example gpui_component
+```
+
+See [the integration and provenance notes](docs/gpui-component.md) for the currently supported
+component slice. External component versions can still be tested with a
+[patch block](https://doc.rust-lang.org/cargo/reference/overriding-dependencies.html), but
+upstream-main components that depend on newer Zed-only APIs may require an in-tree compatibility
+port first.
 
 Example:
 ```toml
