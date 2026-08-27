@@ -8,8 +8,8 @@ use gpui::{
     Entity, FocusHandle, Focusable, Hitbox, HitboxBehavior, Hsla, InteractiveElement,
     Interactivity, IntoElement, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent,
     MouseUpEvent, PaintQuad, Pixels, Point, SharedString, Size, StatefulInteractiveElement, Style,
-    StyleRefinement, Styled, TextAlign, TextLayout, WeakEntity, Window, WrappedLine, fill, point,
-    px, size,
+    StyleRefinement, Styled, TextAlign, TextLayout, WeakEntity, Window, WrappedLine, fill, hsla,
+    point, px, size,
 };
 use smallvec::SmallVec;
 use std::{cell::RefCell, ops::Range, rc::Rc, sync::Arc, time::Duration};
@@ -82,11 +82,10 @@ struct EditableTextColors {
 }
 impl Default for EditableTextColors {
     fn default() -> Self {
-        use palette::RgbHue;
-        const WHITE_50PC: Hsla = Hsla::new_const(RgbHue::new(0.), 0., 1., 0.5);
-        const WHITE_70PC: Hsla = Hsla::new_const(RgbHue::new(0.), 0., 1., 0.7);
+        const WHITE_50PC: Hsla = hsla(0., 0., 1., 0.5);
+        const WHITE_70PC: Hsla = hsla(0., 0., 1., 0.7);
         // approx rgb(38 79 120) or oklch(41.9% 0.0829 250.4)
-        const LIGHT_NAVY_BLUE_50PC: Hsla = Hsla::new_const(RgbHue::new(210.), 0.519, 0.31, 0.5);
+        const LIGHT_NAVY_BLUE_50PC: Hsla = hsla(210. / 360., 0.519, 0.31, 0.5);
         Self {
             placeholder: WHITE_50PC,
             selection: LIGHT_NAVY_BLUE_50PC,

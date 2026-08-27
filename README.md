@@ -32,22 +32,22 @@ We'd like to be a premiere Rust GUI library! For the time being, we're working i
 If you'd like to join discussions and help us forge an path forward, please join the discord.
 
 #### Can I use GPUI-CE with gpui-component?
-The workspace now carries a compatibility snapshot of `longbridge/gpui-component` and a
-host-embedded port of its `hello_world` example. It exercises `gpui_component::init`, `Root`,
-theme access, and an interactive primary `Button` while the application retains ownership of
-the native window, WGPU device, command encoding, submission, and presentation.
+Yes. The workspace carries a pinned source snapshot of `longbridge/gpui-component`; its complete
+public module tree compiles against the local GPUI crate. The embedded examples keep the native
+window, WGPU device, command encoding, submission, and presentation under application ownership.
 
-Run it with:
+Run the interactive windowed example or the deterministic headless component suite with:
 
 ```sh
 cargo run -p gpui_embed --example gpui_component
+cargo run -p gpui_embed --example headless_component_suite
 ```
 
-See [the integration and provenance notes](docs/gpui-component.md) for the currently supported
-component slice. External component versions can still be tested with a
-[patch block](https://doc.rust-lang.org/cargo/reference/overriding-dependencies.html), but
-upstream-main components that depend on newer Zed-only APIs may require an in-tree compatibility
-port first.
+The headless suite renders real upstream controls in light and dark themes, reads the host-owned
+GPU texture back, validates the pixels, and writes a review image under `target/gpui-embed/`.
+See [the integration, verification, and host-capability notes](docs/gpui-component.md). External
+component versions can still be tested with a
+[patch block](https://doc.rust-lang.org/cargo/reference/overriding-dependencies.html).
 
 Example:
 ```toml

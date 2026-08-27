@@ -12,4 +12,5 @@ uuid.workspace = true
 
 [dev-dependencies]
 gpui-component.workspace = true
+image.workspace = true
 winit = "0.30"

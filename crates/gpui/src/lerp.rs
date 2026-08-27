@@ -1,9 +1,8 @@
 //! Lerp trait defines behaviour for interpolating between two values of the same type.
 use crate::{
-    Bounds, Corners, DevicePixels, Edges, Percentage, Pixels, Point, Radians, Rems, Size,
+    Bounds, Corners, DevicePixels, Edges, Percentage, Pixels, Point, Radians, Rems, Rgba, Size,
     colors::Colors,
 };
-use palette::rgb::Rgba;
 use std::{
     fmt::Debug,
     ops::{Add, Mul, Sub},
@@ -87,19 +86,9 @@ struct_lerps!(
     Edges<T> { top, right, bottom, left },
     Corners<T> { top_left, top_right, bottom_right, bottom_left },
     Bounds<T> { origin, size },
-    Rgba { color, alpha },
+    Rgba { r, g, b, a },
     Colors { text, selected_text, background, disabled, selected, border, separator, container }
 );
-
-impl Lerp for palette::rgb::Rgb {
-    fn lerp(&self, to: &Self, delta: f32) -> Self {
-        Self::new(
-            self.red.lerp(&to.red, delta),
-            self.green.lerp(&to.green, delta),
-            self.blue.lerp(&to.blue, delta),
-        )
-    }
-}
 
 macro_rules! tuple_struct_lerps {
     ( $( $ty:ident ( $n:ty ) ),+ ) => {
@@ -301,10 +290,10 @@ mod tests {
         let end = Rgba::new(1., 1., 1., 1.);
 
         let mid = start.lerp(&end, 0.5);
-        assert_eq!(mid.red, 0.5);
-        assert_eq!(mid.green, 0.5);
-        assert_eq!(mid.blue, 0.5);
-        assert_eq!(mid.alpha, 1.0);
+        assert_eq!(mid.r, 0.5);
+        assert_eq!(mid.g, 0.5);
+        assert_eq!(mid.b, 0.5);
+        assert_eq!(mid.a, 1.0);
     }
 
     #[test]
@@ -313,10 +302,10 @@ mod tests {
         let end = Rgba::new(0., 0., 1., 1.);
 
         let mid = start.lerp(&end, 0.5);
-        assert_eq!(mid.red, 0.5);
-        assert_eq!(mid.green, 0.0);
-        assert_eq!(mid.blue, 0.5);
-        assert_eq!(mid.alpha, 0.5);
+        assert_eq!(mid.r, 0.5);
+        assert_eq!(mid.g, 0.0);
+        assert_eq!(mid.b, 0.5);
+        assert_eq!(mid.a, 0.5);
     }
 
     #[test]

@@ -5,8 +5,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AtlasTextureId, AtlasTile, Background, Bounds, ContentMask, Corners, Edges, Pixels, Point,
-    Radians, ScaledFilter, ScaledPixels, Size, bounds_tree::BoundsTree, point,
+    AtlasTextureId, AtlasTile, Background, Bounds, ContentMask, Corners, Edges, Hsla, Pixels,
+    Point, Radians, ScaledFilter, ScaledPixels, Size, bounds_tree::BoundsTree, color::PaletteHsla,
+    point,
 };
 use smallvec::SmallVec;
 use std::{
@@ -263,7 +264,7 @@ impl Scene {
     }
 }
 
-/// Internal representation of [`palette::Hsla`] which is layout sensitive, as its provided to the renderer.
+/// Internal representation of [`Hsla`] whose layout is provided to the renderer.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[repr(C)]
 pub struct SceneHsla {
@@ -276,19 +277,36 @@ pub struct SceneHsla {
     /// Alpha, in a range from 0 to 1
     pub(crate) a: f32,
 }
-impl Into<palette::Hsla> for SceneHsla {
-    fn into(self) -> palette::Hsla {
-        palette::Hsla::new(self.h * 360.0, self.s, self.l, self.a)
+impl From<SceneHsla> for Hsla {
+    fn from(hsla: SceneHsla) -> Self {
+        Self {
+            h: hsla.h,
+            s: hsla.s,
+            l: hsla.l,
+            a: hsla.a,
+        }
     }
 }
-impl From<palette::Hsla> for SceneHsla {
-    fn from(hsla: palette::Hsla) -> Self {
+impl From<Hsla> for SceneHsla {
+    fn from(hsla: Hsla) -> Self {
         Self {
-            h: hsla.hue.into_positive_degrees() / 360.0,
-            s: hsla.saturation,
-            l: hsla.lightness,
-            a: hsla.alpha,
+            h: hsla.h,
+            s: hsla.s,
+            l: hsla.l,
+            a: hsla.a,
         }
+    }
+}
+
+impl From<SceneHsla> for PaletteHsla {
+    fn from(hsla: SceneHsla) -> Self {
+        Hsla::from(hsla).into()
+    }
+}
+
+impl From<PaletteHsla> for SceneHsla {
+    fn from(hsla: PaletteHsla) -> Self {
+        Hsla::from(hsla).into()
     }
 }
 

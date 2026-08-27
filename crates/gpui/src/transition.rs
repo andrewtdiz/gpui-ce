@@ -298,8 +298,7 @@ mod tests {
     use crate::AppContext;
 
     use super::*;
-    use gpui::{Point, TestAppContext, px};
-    use palette::rgb::Rgba;
+    use gpui::{Point, Rgba, TestAppContext, px};
 
     /// Helper to create a Transition directly without using window hooks.
     /// This bypasses the render-phase restriction of use_transition/use_keyed_transition.
@@ -470,9 +469,9 @@ mod tests {
             let transition = create_transition(cx, Duration::from_millis(300), initial);
 
             let goal = transition.read_goal(cx);
-            assert_eq!(goal.red, 1.0);
-            assert_eq!(goal.green, 0.0);
-            assert_eq!(goal.blue, 0.0);
+            assert_eq!(goal.r, 1.0);
+            assert_eq!(goal.g, 0.0);
+            assert_eq!(goal.b, 0.0);
         });
     }
 
@@ -711,10 +710,10 @@ mod tests {
         let initial = Rgba::new(1., 0.5, 0., 1.);
         let state = TransitionState::new(initial);
 
-        assert_eq!(state.initial_goal.red, 1.0);
-        assert_eq!(state.initial_goal.green, 0.5);
-        assert_eq!(state.initial_goal.blue, 0.0);
-        assert_eq!(state.initial_goal.alpha, 1.0);
+        assert_eq!(state.initial_goal.r, 1.0);
+        assert_eq!(state.initial_goal.g, 0.5);
+        assert_eq!(state.initial_goal.b, 0.0);
+        assert_eq!(state.initial_goal.a, 1.0);
     }
 
     #[test]

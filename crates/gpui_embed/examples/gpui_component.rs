@@ -52,8 +52,8 @@ impl Render for DemoUi {
                     .rounded_lg()
                     .border_1()
                     .border_color(cx.theme().border)
-                    .bg(cx.theme().surface)
-                    .text_color(cx.theme().surface_foreground)
+                    .bg(cx.theme().background)
+                    .text_color(cx.theme().foreground)
                     .child(div().text_xl().child("Hello, gpui-component!"))
                     .child(
                         div()

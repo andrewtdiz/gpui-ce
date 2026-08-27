@@ -14,8 +14,8 @@ mod example_prelude;
 
 use example_prelude::init_example;
 use gpui::{
-    App, Bounds, ColorExt, Context, DragMoveEvent, FontWeight, HapticFeedbackStyle, Hsla,
-    InteractiveElement, IntoElement, MouseButton, MouseDownEvent, ParentElement, Pixels, Render,
+    App, Bounds, Context, DragMoveEvent, FontWeight, HapticFeedbackStyle, Hsla, InteractiveElement,
+    IntoElement, MouseButton, MouseDownEvent, ParentElement, Pixels, Render,
     StatefulInteractiveElement, Styled, Window, WindowBounds, WindowOptions, colors::Colors, div,
     prelude::*, px, relative, rgb, size,
 };

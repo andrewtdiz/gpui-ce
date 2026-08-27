@@ -1309,6 +1309,18 @@ pub trait StatefulInteractiveElement: InteractiveElement {
         self
     }
 
+    /// Set the author-provided identifier exposed to accessibility clients.
+    ///
+    /// Unlike the GPUI element ID, this value is visible outside the process.
+    /// Keep it stable and unique within its accessibility tree.
+    /// AccessKit maps it to platform identifiers where supported, including
+    /// UIA `AutomationId` on Windows, `AXIdentifier` on macOS, and AT-SPI
+    /// `AccessibleId` on Linux stacks whose deployed adapter exposes it.
+    fn accessibility_id(mut self, id: impl Into<SharedString>) -> Self {
+        self.interactivity().aria.author_id = Some(id.into());
+        self
+    }
+
     /// Set the accessible label for this element.
     fn aria_label(mut self, label: impl Into<SharedString>) -> Self {
         self.interactivity().aria.label = Some(label.into());
@@ -2036,6 +2048,7 @@ impl IntoElement for Div {
 
 #[derive(Default)]
 pub(crate) struct AriaProperties {
+    pub(crate) author_id: Option<SharedString>,
     pub(crate) label: Option<SharedString>,
     pub(crate) description: Option<SharedString>,
     pub(crate) keyshortcuts: Option<SharedString>,
@@ -3447,6 +3460,9 @@ impl Interactivity {
     }
 
     pub(crate) fn write_a11y_info(&self, node: &mut accesskit::Node) {
+        if let Some(id) = &self.aria.author_id {
+            node.set_author_id(id.to_string());
+        }
         if let Some(label) = &self.aria.label {
             node.set_label(label.to_string());
         }
@@ -4784,6 +4800,18 @@ mod tests {
             1,
             "mouse down over an active prompt should not fire mouse-down-out listeners"
         );
+    }
+
+    #[test]
+    fn test_accessibility_id_builder_writes_author_id() {
+        let mut element = div()
+            .id("buffer-font-size")
+            .accessibility_id("settings.buffer-font-size");
+        let mut node = accesskit::Node::new(accesskit::Role::SpinButton);
+
+        element.interactivity().write_a11y_info(&mut node);
+
+        assert_eq!(node.author_id(), Some("settings.buffer-font-size"));
     }
 
     #[test]

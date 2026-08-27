@@ -14,8 +14,8 @@ mod example_prelude;
 
 use example_prelude::init_example;
 use gpui::{
-    App, Bounds, ColorExt, Context, FontStyle, FontWeight, Hsla, Render, StyledText, TextOverflow,
-    Window, WindowBounds, WindowOptions, colors::Colors, div, prelude::*, px, relative, rgb, size,
+    App, Bounds, Context, FontStyle, FontWeight, Hsla, Render, StyledText, TextOverflow, Window,
+    WindowBounds, WindowOptions, colors::Colors, div, prelude::*, px, relative, rgb, size,
 };
 use palette::IntoColor;
 

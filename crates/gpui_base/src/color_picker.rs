@@ -3,8 +3,8 @@ use std::rc::Rc;
 
 use gpui::{
     AnyElement, App, AppContext as _, ClickEvent, Context, Div, ElementId, Entity, EventEmitter,
-    FocusHandle, Focusable, Hsla, InteractiveElement, Interactivity, IntoColor, IntoElement,
-    KeyBinding, ParentElement, Render, RenderOnce, Rgba, Role, SharedString, Stateful,
+    FocusHandle, Focusable, Hsla, InteractiveElement, Interactivity, IntoElement, KeyBinding,
+    ParentElement, Render, RenderOnce, Rgba, Role, SharedString, Stateful,
     StatefulInteractiveElement, StyleRefinement, Styled, Subscription, Toggled, Window, div, hsla,
     prelude::FluentBuilder as _,
 };
@@ -61,28 +61,28 @@ fn parse_hex(value: &str) -> Option<Hsla> {
             component(2)?,
             if has_alpha { component(3)? } else { 1.0 },
         )
-        .into_color(),
+        .into(),
     )
 }
 
 /// Formats a color as `#RRGGBB`, or `#RRGGBBAA` when it is translucent.
 fn hex_string(color: Hsla) -> String {
-    let rgba: Rgba = color.into_color();
+    let rgba: Rgba = color.into();
     let channel = |value: f32| (value * 255.) as u32;
-    if rgba.alpha < 1. {
+    if rgba.a < 1. {
         format!(
             "#{:02X}{:02X}{:02X}{:02X}",
-            channel(rgba.red),
-            channel(rgba.green),
-            channel(rgba.blue),
-            channel(rgba.alpha)
+            channel(rgba.r),
+            channel(rgba.g),
+            channel(rgba.b),
+            channel(rgba.a)
         )
     } else {
         format!(
             "#{:02X}{:02X}{:02X}",
-            channel(rgba.red),
-            channel(rgba.green),
-            channel(rgba.blue)
+            channel(rgba.r),
+            channel(rgba.g),
+            channel(rgba.b)
         )
     }
 }
@@ -157,10 +157,10 @@ impl HslaSliders {
 
     fn write(&self, color: Hsla, window: &mut Window, cx: &mut App) {
         let components = [
-            (&self.hue, color.hue.into_positive_degrees() / 360.),
-            (&self.saturation, color.saturation),
-            (&self.lightness, color.lightness),
-            (&self.alpha, color.alpha),
+            (&self.hue, color.h),
+            (&self.saturation, color.s),
+            (&self.lightness, color.l),
+            (&self.alpha, color.a),
         ];
         for (slider, value) in components {
             slider.update(cx, |slider, cx| slider.set_value(value, window, cx));
@@ -794,8 +794,8 @@ mod tests {
         assert_eq!(parse_hex("ffffff"), Some(white));
 
         let half = parse_hex("#ff000080").unwrap();
-        assert!((half.alpha - 0.5).abs() < 0.01);
-        assert_eq!(parse_hex("#f008").map(|c| c.hue), Some(half.hue));
+        assert!((half.a - 0.5).abs() < 0.01);
+        assert_eq!(parse_hex("#f008").map(|c| c.h), Some(half.h));
     }
 
     #[test]

@@ -1,5 +1,5 @@
 use crate::{
-    Bounds, DevicePixels, Pixels, PlatformTextSystem, Point, Result, SharedString, Size,
+    Bounds, DevicePixels, Hsla, Pixels, PlatformTextSystem, Point, Result, SharedString, Size,
     StrikethroughStyle, TextRenderingMode, UnderlineStyle, px,
 };
 use anyhow::{Context as _, anyhow};
@@ -7,7 +7,6 @@ use collections::FxHashMap;
 use core::fmt;
 use derive_more::{Add, Deref, FromStr, Sub};
 use itertools::Itertools;
-use palette::Hsla;
 use parking_lot::{Mutex, RwLock, RwLockUpgradableReadGuard};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -1016,7 +1015,7 @@ impl Display for FontStyle {
 }
 
 /// A styled run of text, for use in [`crate::TextLayout`].
-#[derive(Clone, Debug, PartialEq, Default)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct TextRun {
     /// A number of utf8 bytes
     pub len: usize,

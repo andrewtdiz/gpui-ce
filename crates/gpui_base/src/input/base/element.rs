@@ -6,9 +6,9 @@ use gpui::{
     GlobalElementId,
 };
 use gpui::{
-    ColorExt as _, HighlightStyle, Hitbox, HitboxBehavior, Hsla, InteractiveElement, IntoElement,
-    LayoutId, MouseButton, MouseMoveEvent, MouseUpEvent, ParentElement as _, Path, Pixels, Point,
-    Position, ShapedLine, SharedString, Size, Style, Styled as _, TextAlign, TextRun, TextStyle,
+    HighlightStyle, Hitbox, HitboxBehavior, Hsla, InteractiveElement, IntoElement, LayoutId,
+    MouseButton, MouseMoveEvent, MouseUpEvent, ParentElement as _, Path, Pixels, Point, Position,
+    ShapedLine, SharedString, Size, Style, Styled as _, TextAlign, TextRun, TextStyle,
     UnderlineStyle, Window, fill, point, px, relative, size,
 };
 use ropey::Rope;
@@ -2163,7 +2163,7 @@ impl<M: InputModeKind> Element for TextElement<M> {
         // Paint selections
         if window.is_window_active() {
             let mut secondary_selection = editor_style.selection;
-            secondary_selection.saturation = 0.1;
+            secondary_selection.s = 0.1;
             for (path, is_active) in prepaint.search_match_paths.iter() {
                 window.paint_path(path.clone(), secondary_selection);
 
@@ -2570,7 +2570,7 @@ fn split_runs_by_bg_segments(
             // Add the overlapping part with background color
             let overlap_start = run_start.max(bg_range.start);
             let overlap_end = run_end.min(bg_range.end);
-            let text_color = if bg_color.lightness >= 0.5 {
+            let text_color = if bg_color.l >= 0.5 {
                 gpui::black()
             } else {
                 gpui::white()
